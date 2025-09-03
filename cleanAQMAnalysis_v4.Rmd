@@ -1,0 +1,3658 @@
+---
+title: "cleanAQMAnalysis_v4"
+output: html_document
+---
+
+## descriptive results and tests (we use perm tests in the analysis)
+
+```{r results section descriptive tests}
+set.seed(123)
+
+library(tidyverse)
+
+"%ni%" = Negate("%in%")
+
+FUA_data <- read.csv("outputData/FUA_nsf_merged_monitorsOpenAQWAQI.csv")
+
+FUA_gridded <- read.csv("outputData/FUA_nsf_monitors_mergedGrid.csv")
+FUA_data <- merge(FUA_data, FUA_gridded, by = "ID_HDC_G0")
+
+nonOECDFUA <- subset(FUA_data, oecd != 'OECD')
+nonOECDFUA <- subset(nonOECDFUA, INCM_CMI %ni% c('HIC', 'Other') & !is.na(INCM_CMI)) # remove high income countries and NA
+nonOECDFUA <- subset(nonOECDFUA, !is.na(vdem_bin)) # here I subset the countries that are not in the vdem dataset
+
+nonOECDFUA <- subset(nonOECDFUA, GDP15_SM != 0) # also remove cities that do not have GDP per capita 
+
+nonOECDFUA$isMonitor <- as.factor(ifelse((nonOECDFUA$numberMonitor) > 0, 1, 0))
+nonOECDFUA$isNonUSMonitor <- as.factor(ifelse((nonOECDFUA$numberMonitor - nonOECDFUA$numberUSEmbassyMonitors) > 0, 1, 0))
+
+# Try with a dummy IND and CHN
+nonOECDFUA$dummyCHN <- as.factor(ifelse(nonOECDFUA$CTR_MN_NM == "China", 1, 0))
+nonOECDFUA$dummyIND <- as.factor(ifelse(nonOECDFUA$CTR_MN_NM == "India", 1, 0))
+
+# Below we sub-sample IND and CHN because they make up the whole dataset otherwise
+# Step 1: Identify the number of rows of the third most present label
+label_counts <- nonOECDFUA %>%
+  count(CTR_MN_NM) %>%
+  arrange(desc(n))
+
+# Number of rows to sample for "India" and "China"
+target_rows <- label_counts$n[3]
+
+# Subsample for "India" and "China"
+# Step 2: Adjust the rows for "India"
+df_india_adjusted <- nonOECDFUA %>%
+  filter(CTR_MN_NM == "India") %>%
+  sample_n(min(n(), target_rows))
+
+# Step 2: Adjust the rows for "China"
+df_china_adjusted <- nonOECDFUA %>%
+  filter(CTR_MN_NM == "China") %>%
+  sample_n(min(n(), target_rows))
+
+# Combine adjusted "India" and "China" with other labels
+nonOECDFUA_adjusted <- nonOECDFUA %>%
+  filter(!CTR_MN_NM %in% c("India", "China")) %>%
+  bind_rows(df_india_adjusted, df_china_adjusted)
+
+write.csv(nonOECDFUA_adjusted %>% select(ID_HDC_G0),
+          "outputData/FUA_nsf_merged_monitors_subset.csv",
+          row.names = F) # save for consistency in future plots
+
+write.csv(nonOECDFUA %>% select(ID_HDC_G0),
+          "outputData/FUA_nsf_merged_monitors_nonOECD.csv",
+          row.names = F) # save for consistency in future plots
+
+# Number of cities with / without monitor: 1365 / 9741
+df <- nonOECDFUA %>%
+  group_by(isMonitor) %>%
+  summarize(nb = n())
+
+# Number of cities with / just US embassy monitor: 13
+nonOECDFUA$isUSMonitor <- as.factor(ifelse((nonOECDFUA$numberUSEmbassyMonitors) > 0, 1, 0))
+nonOECDFUA$isOnlyUSMonitor <- as.factor(ifelse((nonOECDFUA$isMonitor == 1 & ((as.numeric(nonOECDFUA$numberMonitors) - as.numeric(nonOECDFUA$numberUSEmbassyMonitors)) == 0)), 1, 0))
+
+df <- nonOECDFUA %>%
+  group_by(isOnlyUSMonitor) %>%
+  summarize(nb = n())
+
+# Number of cities adjusted: 774 / 6332
+df <- nonOECDFUA_adjusted %>%
+  group_by(isNonUSMonitor) %>%
+  summarize(nb = n())
+
+
+# Number of reference grade monitors in cities of LMIC: 3171
+df <- nonOECDFUA %>%
+  group_by(isNonUSMonitor) %>%
+  summarize(sum = sum(numberRefMonitors))
+
+
+# Now adjusted for IND and CHN: 1322
+df <- nonOECDFUA_adjusted %>%
+  group_by(isNonUSMonitor) %>%
+  summarize(sum = sum(numberRefMonitors))
+
+# Resulting in number of monitors just in IND and CHN: 370 and 2108
+df <- nonOECDFUA %>%
+  filter(CTR_MN_ISO %in% c("IND")) %>% 
+  group_by(isNonUSMonitor) %>%
+  summarize(sum = sum(numberRefMonitors))
+df
+
+df <- nonOECDFUA %>%
+  filter(CTR_MN_ISO %in% c("CHN")) %>% 
+  group_by(isNonUSMonitor) %>%
+  summarize(sum = sum(numberRefMonitors))
+df
+
+### All the tests (t.test or wilcox): (first without adjusting then with adjusting)
+
+## without adjusting 
+
+nonOECDFUA$conflict_cumulative_intensity_22_num <- as.numeric(ifelse(nonOECDFUA$conflict_cumulative_intensity_22 == "war", 1,0))
+
+nonOECDFUA$GDP15_SMpc <- nonOECDFUA$GDP15_SM/nonOECDFUA$P15
+
+# List of variables to test
+variables <- c("GDP15_SMpc", "pm25VanD20002016",
+               "conflict_cumulative_intensity_22_num", "CPI_2012_2022",
+               "capital", "P15",
+               "mean_edi")
+
+# Function to perform t-test and Wilcoxon test
+perform_tests <- function(data, var) {
+  # Ensure the variable is numeric
+  if (!is.numeric(data[[var]])) {
+    stop(paste("Variable", var, "is not numeric"))
+  }
+  
+  monitor_data <- data %>% filter(isNonUSMonitor == 1) %>% pull(var) %>% na.omit()
+  non_monitor_data <- data %>% filter(isNonUSMonitor == 0) %>% pull(var) %>% na.omit()
+  
+  # Perform t-test only if both groups have more than one unique value
+  if (length(unique(monitor_data)) > 1 && length(unique(non_monitor_data)) > 1) {
+    t_test_result <- t.test(monitor_data, non_monitor_data)
+  } else {
+    t_test_result <- NA
+  }
+  
+  # Perform Wilcoxon test only if both groups have more than one unique value
+  if (length(unique(monitor_data)) > 1 && length(unique(non_monitor_data)) > 1) {
+    wilcox_test_result <- wilcox.test(monitor_data, non_monitor_data)
+  } else {
+    wilcox_test_result <- NA
+  }
+  
+  list(
+    t_test = t_test_result,
+    wilcox_test = wilcox_test_result
+  )
+}
+
+# Apply the tests to each variable
+test_results <- lapply(variables, function(var) perform_tests(nonOECDFUA, var))
+
+# Print the results
+for (i in seq_along(variables)) {
+  cat("Results for variable:", variables[i], "\n")
+  cat("T-test:\n")
+  print(test_results[[i]]$t_test)
+  cat("Wilcoxon test:\n")
+  print(test_results[[i]]$wilcox_test)
+  cat("\n")
+}
+
+# here results but not detailed because adjusted dataset better?
+# GDP significant ***
+
+# pollution NS
+
+# population significant ***
+
+# capital significant ***
+
+# war NS
+
+# corruption significant ***
+
+# democracy (important one) significant *** for non democracies
+
+# now test with democracy x pollution (not sure what test to do)
+# probably subset the data for democracies and non democracies and run the test
+nonDem <- subset(nonOECDFUA, vdem_bin == "non-democracy")
+
+t.test(subset(nonDem, isNonUSMonitor == 1)$pm25VanD20002016, subset(nonDem, isNonUSMonitor == 0)$pm25VanD20002016)
+wilcox.test(subset(nonDem, isNonUSMonitor == 1)$pm25VanD20002016, subset(nonDem, isNonUSMonitor == 0)$pm25VanD20002016)
+
+dem <- subset(nonOECDFUA, vdem_bin == "democracy")
+
+t.test(subset(dem, isNonUSMonitor == 1)$pm25VanD20002016, subset(dem, isNonUSMonitor == 0)$pm25VanD20002016)
+wilcox.test(subset(dem, isNonUSMonitor == 1)$pm25VanD20002016, subset(dem, isNonUSMonitor == 0)$pm25VanD20002016)
+
+
+## adjusting 
+
+nonOECDFUA_adjusted$conflict_cumulative_intensity_22_num <- as.numeric(ifelse(nonOECDFUA_adjusted$conflict_cumulative_intensity_22 == "war", 1,0))
+
+nonOECDFUA_adjusted$GDP15_SMpc <- nonOECDFUA_adjusted$GDP15_SM/nonOECDFUA_adjusted$P15
+
+# List of variables to test
+variables <- c("GDP15_SMpc", "pm25VanD20002016",
+               "conflict_cumulative_intensity_22_num", "CPI_2012_2022",
+               "capital", "P15",
+               "mean_edi")
+
+
+# Function to perform t-test and Wilcoxon test
+perform_tests <- function(data, var) {
+  # Ensure the variable is numeric
+  if (!is.numeric(data[[var]])) {
+    stop(paste("Variable", var, "is not numeric"))
+  }
+  
+  monitor_data <- data %>% filter(isNonUSMonitor == 1) %>% pull(var) %>% na.omit()
+  non_monitor_data <- data %>% filter(isNonUSMonitor == 0) %>% pull(var) %>% na.omit()
+  
+  # Perform t-test only if both groups have more than one unique value
+  if (length(unique(monitor_data)) > 1 && length(unique(non_monitor_data)) > 1) {
+    t_test_result <- t.test(monitor_data, non_monitor_data, var.equal = F)
+  } else {
+    t_test_result <- NA
+  }
+  
+  # Perform Wilcoxon test only if both groups have more than one unique value
+  if (length(unique(monitor_data)) > 1 && length(unique(non_monitor_data)) > 1) {
+    wilcox_test_result <- wilcox.test(monitor_data, non_monitor_data)
+  } else {
+    wilcox_test_result <- NA
+  }
+  
+  list(
+    t_test = t_test_result,
+    wilcox_test = wilcox_test_result
+  )
+}
+
+# Apply the tests to each variable
+test_results <- lapply(variables, function(var) perform_tests(nonOECDFUA_adjusted, var))
+
+# Print the results
+for (i in seq_along(variables)) {
+  cat("Results for variable:", variables[i], "\n")
+  cat("T-test:\n")
+  print(test_results[[i]]$t_test)
+  cat("Wilcoxon test:\n")
+  print(test_results[[i]]$wilcox_test)
+  cat("\n")
+}
+
+# GDP significant *** more GDPpc in monitored cities
+
+# pollution significant LESS POLLUTED LESS MONITORING
+
+# population significant *** more populated in monitored
+
+# capital significant *** capitals more likely to be monitored
+
+# war significant ** (more conflict less monitoring)
+
+# corruption significant *** less corrupted in monitored cities
+
+# democracy (important one) significant ** less democratic in monitored cities ->
+# CAREFUL THO with wilcox test ONLY
+
+# now test with democracy x pollution (not sure what test to do)
+# probably subset the data for democracies and non democracies and run the test
+
+####### Use permutation tests instead 
+
+# library(perm) # loaded previously
+
+# List of variables to test
+variables <- c("GDP15_SMpc", "pm25VanD20002016",
+               "conflict_cumulative_intensity_22_num", "CPI_2012_2022",
+               "capital", "P15",
+               "mean_edi")
+
+# Function to perform permutation test using permTS
+perform_permutation_test <- function(data, var) {
+  # Ensure the variable is numeric
+  if (!is.numeric(data[[var]])) {
+    stop(paste("Variable", var, "is not numeric"))
+  }
+  
+  monitor_data <- as.numeric(data %>% filter(isNonUSMonitor == 1) %>% pull(var) %>% na.omit())
+  non_monitor_data <- as.numeric(data %>% filter(isNonUSMonitor == 0) %>% pull(var) %>% na.omit())
+  
+  # Combine data and create group labels
+  combined_data <- c(monitor_data, non_monitor_data)
+  group <- factor(c(rep(1, length(monitor_data)), rep(0, length(non_monitor_data))))
+  
+  # Perform permutation test using permTS
+  perm_test_result <- permTS(combined_data ~ group, method = "exact.mc", control = permControl(nmc = 1000))
+  
+  list(
+    perm_test_result = perm_test_result
+  )
+}
+
+# Function to perform all tests
+perform_tests <- function(data, var) {
+  perform_permutation_test(data, var)
+}
+
+# Apply the tests to each variable
+test_results <- lapply(variables, function(var) perform_tests(nonOECDFUA_adjusted, var))
+
+# Print the results
+for (i in seq_along(variables)) {
+  cat("Results for variable:", variables[i], "\n")
+  cat("Permutation Test:\n")
+  print(test_results[[i]]$perm_test_result)
+  cat("\n")
+}
+
+##########
+permTS(as.numeric(nonOECDFUA_adjusted %>% filter(vdem_bin == "non-democracy") %>% pull(pm25VanD20002016) %>% na.omit()), as.numeric(nonOECDFUA_adjusted %>% filter(vdem_bin == "democracy") %>% pull(pm25VanD20002016) %>% na.omit()), method = "exact.mc", control = permControl(nmc = 1000))
+
+nonDem_adj <- subset(nonOECDFUA_adjusted, vdem_bin == "non-democracy")
+
+# t.test(subset(nonDem_adj, isNonUSMonitor == 1)$pm25VanD20002016, subset(nonDem_adj, isNonUSMonitor == 0)$pm25VanD20002016)
+# wilcox.test(subset(nonDem_adj, isNonUSMonitor == 1)$pm25VanD20002016, subset(nonDem_adj, isNonUSMonitor == 0)$pm25VanD20002016)
+permTS(as.numeric(nonDem_adj %>% filter(isNonUSMonitor == 1) %>% pull(pm25VanD20002016) %>% na.omit()), as.numeric(nonDem_adj %>% filter(isNonUSMonitor == 0) %>% pull(pm25VanD20002016) %>% na.omit()), method = "exact.mc", control = permControl(nmc = 1000))
+
+dem_adj <- subset(nonOECDFUA_adjusted, vdem_bin == "democracy")
+
+# t.test(subset(dem_adj, isNonUSMonitor == 1)$pm25VanD20002016, subset(dem_adj, isNonUSMonitor == 0)$pm25VanD20002016)
+# wilcox.test(subset(dem_adj, isNonUSMonitor == 1)$pm25VanD20002016, subset(dem_adj, isNonUSMonitor == 0)$pm25VanD20002016)
+permTS(as.numeric(dem_adj %>% filter(isNonUSMonitor == 1) %>% pull(pm25VanD20002016) %>% na.omit()), as.numeric(dem_adj %>% filter(isNonUSMonitor == 0) %>% pull(pm25VanD20002016) %>% na.omit()), method = "exact.mc", control = permControl(nmc = 1000))
+
+```
+
+## Figure 1 + some supp (mapping)
+
+```{r Figure 1 and Supp. Fig. 7 8 / Maps with choroplet and monitor type}
+
+library(rnaturalearth)
+library(sf)
+library(tidyverse)
+library(tricolore)
+library(terra)
+
+# First Figure is a map of points in FUAs for different databases
+
+"%ni%" = Negate("%in%")
+
+#load monitor dataset
+data3 <- read.csv('outputData/mergedMonitors2_final.csv', sep = ',', allowEscapes = T)
+
+data3Sub <- subset(data3, !is.na(longitude))
+data3Sub_sf <- st_as_sf(data3Sub, coords = c("longitude", "latitude"), crs = 4326)
+
+#load list of FUAs to keep
+df_subset_fua <- read.csv('outputData/FUA_nsf_merged_monitors_subset.csv', sep = ',', allowEscapes = T) 
+
+df_nonOECD_fua <- read.csv('outputData/FUA_nsf_merged_monitors_nonOECD.csv', sep = ',', allowEscapes = T) 
+
+listFUA <- unique(df_subset_fua$ID_HDC_G0)
+listFUA_nonOECD <- unique(df_nonOECD_fua$ID_HDC_G0)
+
+FUAs_sp <- st_read("data/FUA_fixed_geom.gpkg") # spatially explicit FUAs
+
+listFUA_nonOECD <- unique(df_nonOECD_fua$ID_HDC_G0)
+
+FUAs_nonOECD <- subset(FUAs_sp, ID_HDC_G0 %in% listFUA_nonOECD)
+
+points_within_fuas <- st_join(data3Sub_sf, FUAs_nonOECD, join = st_intersects) %>% subset(., !is.na(ID_HDC_G0))
+
+# now taking from the niceMaps code
+
+extDF <- data.frame(xmin = -180, xmax = 180, ymin = -72, ymax = 70)
+ext <- c(xmin = -180, xmax = 180, ymin = -72, ymax = 70)
+
+# remotes::install_version("tricolore", version = "1.2.2")
+
+colors <- c("#91C17F", "#D0B077", "#FFCF00", "#4DC6B9", "#E5E4E2", "#FFA5FF", "#00FFE5", "#EC9FAE", "#D6A2E0", "#88B9E5")
+
+# Function to determine color based on source presence
+get_color <- function(PurpleAir, WAQI, OpenAQ) {
+  #just to make it flexible
+  isPurpleAir = ifelse(PurpleAir == T, T, F)
+  isWAQI = ifelse(WAQI > 0, T, F)
+  isOpenAQ = ifelse(OpenAQ == T, T, F)
+  
+  col <- ifelse(isPurpleAir & isWAQI & isOpenAQ, "darkgrey",  # All conditions true
+                ifelse(isPurpleAir & isWAQI & !isOpenAQ, "#EC9FAE",  # PurpleAir and WAQI true, OpenAQ false
+                       ifelse(isPurpleAir & !isWAQI & isOpenAQ, "#88B9E5",  # PurpleAir and OpenAQ true, WAQI false
+                              ifelse(isPurpleAir & !isWAQI & !isOpenAQ, "#FFA5FF",  # Only PurpleAir true
+                                     ifelse(!isPurpleAir & isWAQI & isOpenAQ, "#91C17F",  # WAQI and OpenAQ true, PurpleAir false
+                                            ifelse(!isPurpleAir & isWAQI & !isOpenAQ, "#FFCF00",  # Only WAQI true
+                                                   ifelse(!isPurpleAir & !isWAQI & isOpenAQ, "#00FFE5",  # Only OpenAQ true
+                                                          "black" # None are true
+                                                   )))))))
+  
+  return(col)
+}
+
+get_category <- function(PurpleAir, WAQI, OpenAQ) {
+  #just to make it flexible
+  isPurpleAir = ifelse(PurpleAir == T, T, F)
+  isWAQI = ifelse(WAQI > 0, T, F)
+  isOpenAQ = ifelse(OpenAQ == T, T, F)
+  
+  col <- ifelse(isPurpleAir & isWAQI & isOpenAQ, "All databases",  # All conditions true
+                ifelse(isPurpleAir & isWAQI & !isOpenAQ, "PurpleAir & WAQI",  # PurpleAir and WAQI true, OpenAQ false
+                       ifelse(isPurpleAir & !isWAQI & isOpenAQ, "PurpleAir & OpenAQ",  # PurpleAir and OpenAQ true, WAQI false
+                              ifelse(isPurpleAir & !isWAQI & !isOpenAQ, "PurpleAir",  # Only PurpleAir true
+                                     ifelse(!isPurpleAir & isWAQI & isOpenAQ, "WAQI & OpenAQ",  # WAQI and OpenAQ true, PurpleAir false
+                                            ifelse(!isPurpleAir & isWAQI & !isOpenAQ, "WAQI",  # Only WAQI true
+                                                   ifelse(!isPurpleAir & !isWAQI & isOpenAQ, "OpenAQ",  # Only OpenAQ true
+                                                          "None" # None are true
+                                                   )))))))
+  
+  return(col)
+}
+
+category_colors <- c(
+  "All databases" = "darkgrey",
+  "PurpleAir & WAQI" = "#EC9FAE",
+  "PurpleAir & OpenAQ" = "#88B9E5",
+  "PurpleAir" = "#FFA5FF",
+  "WAQI & OpenAQ" = "#91C17F",
+  "WAQI" = "#FFCF00",
+  "OpenAQ" = "#00FFE5",
+  "None" = "black"
+)
+
+data3Sub <- points_within_fuas
+
+# Apply color function to each row
+data3Sub$color <- mapply(get_color, data3Sub$occurencePurpleAir, data3Sub$occurenceWAQI, data3Sub$occurenceOpenAQ)
+data3Sub$category <- mapply(get_category, data3Sub$occurencePurpleAir, data3Sub$occurenceWAQI, data3Sub$occurenceOpenAQ)
+
+term_order <- c("All databases",
+                "OpenAQ",
+                "WAQI",
+                "PurpleAir",
+                "WAQI & OpenAQ",
+                "PurpleAir & OpenAQ",
+                "PurpleAir & WAQI",
+                "None")
+
+# Recode and set the levels of the term factor
+data3Sub <- data3Sub %>%
+  mutate(category = factor(category, levels = term_order))
+
+p <- ggplot(data3Sub, aes(x = category, fill = category)) +
+  geom_bar() +
+  scale_fill_manual(values = category_colors) +
+  labs(x = "Monitors in database(s)",
+       y = "Number of Monitors",
+       fill = "Database") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+ggsave(plot = p, filename = paste('plotsMain/nbMonitorsDatabasesinFua.png', sep = ""),
+       dpi=600, width = 12, height = 8, units='cm')
+
+# Reproject the data to the Mollweide projection using st_transform()
+targetCRS <- st_crs("+proj=moll +lon_0=0 +x_0=0 +y_0=0 +datum=WGS84")
+mollPointdf <- st_transform(data3Sub, crs = targetCRS)
+
+world_countries <- ne_countries(scale = "large", returnclass = "sf")
+
+df_cities_nonOECD <- read.csv('data/countries_nonOECD.csv', sep = ',', allowEscapes = T) 
+
+listCountries <- unique(df_cities_nonOECD$CTR_MN_ISO)
+
+world_countries$iso_a3 <- ifelse(world_countries$sovereignt == "Somaliland", "SOM", world_countries$iso_a3)
+
+world_countries_subset <- world_countries %>%
+  mutate(OECD_status = case_when(
+    iso_a3 %in% listCountries ~ "included",
+    TRUE ~ "excluded"
+  ))
+
+world_countries <- world_countries_subset %>% st_transform(crs = targetCRS)  %>%
+  st_make_valid()
+
+
+map_plot <- ggplot() +
+  # geom_rect(aes(xmin = -180, xmax = 180, ymin = -90, ymax = 90), fill = "black") + # if we want to change background color
+  geom_sf(data = world_countries, aes(fill = OECD_status), color = "lightgrey") +
+  scale_fill_manual(values = c("lightgrey", "#F5F5F5"))+
+  geom_sf(data = mollPointdf, aes(color = color), size = 0.8, alpha = 0.3) +
+  scale_color_identity() +
+  coord_sf(crs = targetCRS) +  # This keeps the 1:1 aspect ratio
+  theme_void()+
+  theme(legend.position = "none")
+
+map_plot
+
+ggsave(plot = map_plot, filename = paste('plotsMain/monitorsFuaPoints.png', sep = ""),
+       dpi=600, width = 18, height = 12, units='cm')
+
+
+########## We make a map for reference grade / air sensor Supplementary Figure 8 ########## ########## ########## 
+
+# we use the mollweide projection
+mollPointdf$colorFill <- ifelse(mollPointdf$type == "Sensor", "#88B9E5", "#91C17F")
+
+map_plot <- ggplot() +
+  # geom_rect(aes(xmin = -180, xmax = 180, ymin = -90, ymax = 90), fill = "black") + # if we want to change background color
+  geom_sf(data = world_countries, aes(fill = OECD_status), color = "lightgrey") +
+  scale_fill_manual(values = c("lightgrey", "#F5F5F5"))+
+  geom_sf(data = mollPointdf, aes(color = colorFill), size = 0.7, alpha = 0.2) +
+  scale_color_identity() +
+  coord_sf(crs = targetCRS) +  # This keeps the 1:1 aspect ratio
+  theme_void()+
+  theme(legend.position = "none")
+
+map_plot
+
+ggsave(plot = map_plot, filename = paste("plotsExtra/maps/supplementaryFigure8.png", sep = ""),
+       dpi=600, width = 18, height = 12, units='cm')
+
+mollPointdf$plotType <- ifelse(mollPointdf$type == "Sensor", "Sensor", "Reference Grade")
+
+p <- ggplot(mollPointdf, aes(x = plotType, fill = plotType)) +
+  geom_bar() +
+  scale_fill_manual(values = c("#91C17F", "#88B9E5")) +
+  labs(x = "Monitor Type",
+       y = "Number of Monitors",
+       fill = "Monitor Type") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+p
+
+ggsave(plot = p, filename = paste("plotsExtra/maps/supplementaryFigure8legend.png", sep = ""),
+       dpi=600, width = 8, height = 10, units='cm')
+
+##### choropleth map at the country level ##### ##### ##### ##### ##### ##### 
+
+"%ni%" = Negate("%in%")
+
+#load monitor dataset
+data3 <- read.csv('outputData/mergedMonitors2_final.csv', sep = ',', allowEscapes = T)
+
+data3Sub <- subset(data3, !is.na(longitude))
+
+extDF <- data.frame(xmin = -180, xmax = 180, ymin = -72, ymax = 70)
+ext <- c(xmin = -180, xmax = 180, ymin = -72, ymax = 70)
+
+data3Sub_chloro <- vect(data3Sub, geom=c("longitude", "latitude"), crs="+proj=longlat +datum=WGS84")
+
+world_countries <- ne_countries(scale = "large", returnclass = "sf")
+
+df_cities_nonOECD <- read.csv('data/countries_nonOECD.csv', sep = ',', allowEscapes = T) 
+
+listCountries <- unique(df_cities_nonOECD$CTR_MN_ISO)
+
+world_countries$iso_a3 <- ifelse(world_countries$sovereignt == "Somaliland", "SOM", world_countries$iso_a3)
+
+world_countries_subset <- world_countries %>%
+  mutate(OECD_status = case_when(
+    iso_a3 %in% listCountries ~ "included",
+    TRUE ~ "excluded"
+  ))
+
+world_countriesterra <- vect(world_countries_subset)
+# plot(world_countriesterra)
+
+world_countriesterra$type <- NULL
+
+# Define the buffer distance (e.g., 500 meters)
+buffer_distance <- 500  # Adjust this value based on your needs
+
+# Create a buffer around the points
+buffered_points <- buffer(data3Sub_chloro, width = buffer_distance)
+
+# Perform a spatial join to find which country each point falls into
+points_in_countries <- terra::intersect(buffered_points, world_countriesterra)
+
+points_in_countries_df <- as.data.frame(points_in_countries)
+
+counts_df <- points_in_countries_df %>%
+  group_by(iso_a3) %>%
+  summarize(
+    countPurpleAir = sum(occurencePurpleAir == TRUE, na.rm = TRUE),  # Count only where occurencePurpleAir is TRUE
+    countWAQI = sum(occurenceWAQI > 0, na.rm = TRUE),       # Total count of records for WAQI per group
+    countOpenAQ = sum(occurenceOpenAQ == TRUE, na.rm = TRUE)      # Total count of records for OpenAQ per group
+  )
+
+counts_df <- counts_df %>%
+  mutate(total = select(., c(countPurpleAir, countWAQI, countOpenAQ)) %>% rowSums(na.rm = TRUE))
+
+counts_df$p_PurpleAir <- counts_df$countPurpleAir/counts_df$total
+counts_df$p_WAQI <- counts_df$countWAQI/counts_df$total
+counts_df$p_OpenAQ <- counts_df$countOpenAQ/counts_df$total
+
+world_countries_merged <- merge(world_countries_subset, counts_df, by = "iso_a3", all.x = T)
+
+# play around with the color values to find the nicest map
+tric_dat <- Tricolore(world_countries_merged,
+                      p1 = 'p_WAQI',
+                      p2 = 'p_OpenAQ', 
+                      p3 = 'p_PurpleAir',
+                      breaks = 3,
+                      contrast = .4, 
+                      lightness = 1, 
+                      chroma = 1, 
+                      hue = 2/12)
+
+world_countries_merged$rgb <- tric_dat$rgb
+
+# Extract the key plot from the tric_dat object
+key_plot <- tric_dat$key
+
+# Find the layer that contains the points
+point_layer <- which(sapply(key_plot$layers, function(x) class(x$geom)[1]) == "GeomPoint")
+
+# Modify the point layer to increase the size of the points
+if (length(point_layer) > 0) {
+  key_plot$layers[[point_layer]]$aes_params$size <- 3 # Adjust the point size here
+}
+
+# Convert the modified key plot to a grob and plot it
+legend_grob <- ggplotGrob(key_plot + 
+  labs(p_WAQI = "% WAQI\n(0-100)", p_OpenAQ = "% OpenAQ\n(0-100)", p_PurpleAir = "% PurpleAir\n(0-100)"))
+
+library(grid)
+
+grid.newpage()
+grid.draw(legend_grob)
+
+ggsave(plot = legend_grob, filename = paste('plotsExtra/maps/countriesMonitors_legend3.png', sep = ""),
+       dpi=600, width = 12, height = 10, units='cm')
+
+
+world_countries_merged$rgb[is.na(world_countries_merged$rgb)] <- "#F5F5F5"
+world_countries_merged$rgb[world_countries_merged$OECD_status == "excluded"] <- "lightgrey"
+
+targetCRS <- st_crs("+proj=moll +lon_0=0 +x_0=0 +y_0=0 +datum=WGS84")
+world_countries_merged <- world_countries_merged %>% st_transform(crs = targetCRS)  %>%
+  st_make_valid()
+
+print(st_crs(world_countries_merged))
+
+bounds <- st_bbox(world_countries_merged)
+
+# Base ggplot with fixed aspect ratio
+map_plot <- ggplot() +
+  # geom_rect(aes(xmin = -180, xmax = 180, ymin = -90, ymax = 90), fill = "black") + # if we want to change background color
+  geom_sf(data = world_countries_merged, aes(fill = rgb), color = "lightgrey", linewidth = 0.01) +
+  scale_fill_identity() +
+  coord_sf(crs = targetCRS) +  # This keeps the 1:1 aspect ratio
+  theme_void()
+
+plot(map_plot)
+
+ggsave(plot = map_plot, filename = paste('plotsExtra/maps/countriesMonitors.png', sep = ""),
+       dpi=600, width = 18, height = 12, units='cm')
+
+########## Now we remove points that don't fall in FUAs Supplementary Figure 7 ########## ########## ########## 
+
+"%ni%" = Negate("%in%")
+
+#load monitor dataset
+data3 <- read.csv('outputData/mergedMonitors2_final.csv', sep = ',', allowEscapes = T)
+
+data3Sub <- subset(data3, !is.na(longitude))
+
+#load list of FUAs to keep
+df_nonOECD_fua <- read.csv('outputData/FUA_nsf_merged_monitors_nonOECD.csv', sep = ',', allowEscapes = T) 
+
+listFUA_nonOECD <- unique(df_nonOECD_fua$ID_HDC_G0)
+
+FUAs_sp <- st_read("data/FUA_fixed_geom.gpkg") # spatially explicit FUAs
+
+listFUA_nonOECD <- unique(df_nonOECD_fua$ID_HDC_G0)
+
+FUAs_nonOECD <- subset(FUAs_sp, ID_HDC_G0 %in% listFUA_nonOECD)
+
+data3Sub_sf <- st_as_sf(data3Sub, coords = c("longitude", "latitude"), crs = 4326)
+
+data3Sub_terra <- vect(data3Sub, geom=c("longitude", "latitude"), crs="+proj=longlat +datum=WGS84")
+
+FUAs_nonOECD_terra <- vect(FUAs_nonOECD)
+
+# points_within_fuas_ST <- st_join(data3Sub_sf, FUAs_nonOECD, join = st_intersects) %>% subset(., !is.na(ID_HDC_G0))
+
+points_within_fuas_terra <- terra::intersect(data3Sub_terra, FUAs_nonOECD_terra) 
+
+extDF <- data.frame(xmin = -180, xmax = 180, ymin = -72, ymax = 70)
+ext <- c(xmin = -180, xmax = 180, ymin = -72, ymax = 70)
+
+world_countries <- ne_countries(scale = "large", returnclass = "sf")
+
+df_cities_nonOECD <- read.csv('data/countries_nonOECD.csv', sep = ',', allowEscapes = T) 
+
+listCountries <- unique(df_cities_nonOECD$CTR_MN_ISO)
+
+world_countries$iso_a3 <- ifelse(world_countries$sovereignt == "Somaliland", "SOM", world_countries$iso_a3)
+
+world_countries_subset <- world_countries %>%
+  mutate(OECD_status = case_when(
+    iso_a3 %in% listCountries ~ "included",
+    TRUE ~ "excluded"
+  ))
+
+world_countriesterra <- vect(world_countries_subset)
+# plot(world_countriesterra)
+
+world_countriesterra$type <- NULL
+
+# data3Sub_chloro <- vect(points_within_fuas, geom=c("longitude", "latitude"), crs="+proj=longlat +datum=WGS84")
+
+# Define the buffer distance (e.g., 500 meters)
+buffer_distance <- 500  # Adjust this value based on your needs
+
+# Create a buffer around the points
+buffered_points <- buffer(points_within_fuas_terra, width = buffer_distance)
+
+# Perform a spatial join to find which country each point falls into
+points_in_countries <- terra::intersect(buffered_points, world_countriesterra)
+
+points_in_countries_df <- as.data.frame(points_in_countries)
+
+counts_df <- points_in_countries_df %>%
+  group_by(iso_a3) %>%
+  summarize(
+    countPurpleAir = sum(occurencePurpleAir == TRUE, na.rm = TRUE),  # Count only where occurencePurpleAir is TRUE
+    countWAQI = sum(occurenceWAQI > 0, na.rm = TRUE),       # Total count of records for WAQI per group
+    countOpenAQ = sum(occurenceOpenAQ == TRUE, na.rm = TRUE)      # Total count of records for OpenAQ per group
+  )
+
+counts_df <- counts_df %>%
+  mutate(total = select(., c(countPurpleAir, countWAQI, countOpenAQ)) %>% rowSums(na.rm = TRUE))
+
+counts_df$p_PurpleAir <- counts_df$countPurpleAir/counts_df$total
+counts_df$p_WAQI <- counts_df$countWAQI/counts_df$total
+counts_df$p_OpenAQ <- counts_df$countOpenAQ/counts_df$total
+
+world_countries_merged <- merge(world_countries_subset, counts_df, by = "iso_a3", all.x = T)
+
+# play around with the color values to find the nicest map
+
+tric_dat <- Tricolore(world_countries_merged,
+                      p1 = 'p_WAQI',
+                      p2 = 'p_OpenAQ', 
+                      p3 = 'p_PurpleAir',
+                      breaks = 3,
+                      contrast = .4, 
+                      lightness = 1, 
+                      chroma = 1, 
+                      hue = 2/12)
+
+world_countries_merged$rgb <- tric_dat$rgb
+
+# Extract the key plot from the tric_dat object
+key_plot <- tric_dat$key
+
+# Find the layer that contains the points
+point_layer <- which(sapply(key_plot$layers, function(x) class(x$geom)[1]) == "GeomPoint")
+
+# Modify the point layer to increase the size of the points
+if (length(point_layer) > 0) {
+  key_plot$layers[[point_layer]]$aes_params$size <- 3 # Adjust the point size here
+}
+
+###
+
+# Edit the axis labels
+key_plot$labels$x <- "% WAQI\n(0-100)"
+key_plot$labels$y <- "% OpenAQ\n(0-100)"
+key_plot$labels$z <- "% PurpleAir\n(0-100)"
+
+####
+grid.newpage()
+grid.draw(key_plot)
+
+
+key_plot <- key_plot+theme(axis.title = element_text(size = 11))  # Adjust the size value as needed
+
+ggsave(plot = key_plot, filename = paste('plotsExtra/maps/countriesMonitorsinFUA_legend2.png', sep = ""),
+       dpi=600, width = 13, height = 10, units='cm')
+
+
+world_countries_merged$rgb[is.na(world_countries_merged$rgb)] <- "#F5F5F5"
+world_countries_merged$rgb[world_countries_merged$OECD_status == "excluded"] <- "lightgrey"
+
+targetCRS <- st_crs("+proj=moll +lon_0=0 +x_0=0 +y_0=0 +datum=WGS84")
+world_countries_merged <- world_countries_merged %>% st_transform(crs = targetCRS)  %>%
+  st_make_valid()
+
+print(st_crs(world_countries_merged))
+
+bounds <- st_bbox(world_countries_merged)
+
+# Base ggplot with fixed aspect ratio
+map_plot <- ggplot() +
+  # geom_rect(aes(xmin = -180, xmax = 180, ymin = -90, ymax = 90), fill = "black") + # if we want to change background color
+  geom_sf(data = world_countries_merged, aes(fill = rgb), color = "lightgrey", linewidth = 0.01) +
+  scale_fill_identity() +
+  coord_sf(crs = targetCRS) +  # This keeps the 1:1 aspect ratio
+  theme_void()
+
+plot(map_plot)
+
+ggsave(plot = map_plot, filename = paste('plotsExtra/maps/countriesMonitorsinFUA.png', sep = ""),
+       dpi=600, width = 18, height = 12, units='cm')
+
+```
+
+## Figures 2-3 + some supp (descriptives)
+
+```{r figures Paper 2-3 supp now saving all descriptives, saving into plotsMain those going into main manuscript}
+
+library(sf)
+library(tidyverse)
+
+"%ni%" = Negate("%in%")
+
+#load FUA dataset (filter after subset)
+
+FUAs <- read.csv('outputData/FUA_nsf_merged_monitorsOpenAQWAQI.csv', sep = ',', allowEscapes = T)
+
+FUA_gridded <- read.csv("outputData/FUA_nsf_monitors_mergedGrid.csv")
+FUAs <- merge(FUAs, FUA_gridded, by = "ID_HDC_G0")
+
+#load list of FUAs to keep
+df_subset_fua <- read.csv('outputData/FUA_nsf_merged_monitors_subset.csv', sep = ',', allowEscapes = T) 
+
+df_nonOECD_fua <- read.csv('outputData/FUA_nsf_merged_monitors_nonOECD.csv', sep = ',', allowEscapes = T) 
+
+listFUA <- unique(df_subset_fua$ID_HDC_G0)
+listFUA_nonOECD <- unique(df_nonOECD_fua$ID_HDC_G0)
+
+FUAs$INDCHNOTH <- factor(ifelse(FUAs$CTR_MN_NM == "India", "India",
+                         ifelse(FUAs$CTR_MN_NM == "China", "China",
+                                ifelse(is.na(FUAs$CTR_MN_NM), NA, "Other"))), levels = c("Other", "India", "China"))
+
+FUAs$numberMonitorsNonUS <- FUAs$numberMonitors - FUAs$numberUSEmbassyMonitors
+
+FUAs$isMonitorNonUSE <- ifelse(FUAs$numberMonitorsNonUS > 0, "Yes", "No")
+
+FUAs <- subset(FUAs, log(GDP15_SM+1) != 0)
+
+FUAs_subset <- subset(FUAs, ID_HDC_G0 %in% listFUA)
+FUAs_nonOECD <- subset(FUAs, ID_HDC_G0 %in% listFUA_nonOECD)
+
+FUAs_subset$GDP15_SM_PC <- FUAs_subset$GDP15_SM/FUAs_subset$P15
+
+lines_df <- FUAs_subset %>% 
+  group_by(isMonitorNonUSE) %>% 
+  summarize(meanGDP = mean(log(GDP15_SM+1), na.rm=T),
+            meanPop = mean(log(P15), na.rm=T),
+            meanGDPpc = mean(log(GDP15_SM_PC+1), na.rm=T),
+            meanDemo = mean(mean_edi, na.rm=T),
+            medianGDP = median(log(GDP15_SM+1), na.rm=T),
+            medianPop = median(log(P15), na.rm=T),
+            medianGDPpc = median(log(GDP15_SM_PC+1), na.rm=T),
+            medianDemo = median(mean_edi, na.rm=T)
+            )
+
+p <- FUAs_subset %>% ggplot(aes(x = log(GDP15_SM+1), fill = isMonitorNonUSE))+
+  geom_histogram(bins = 50)+
+  geom_vline(data = lines_df, aes(xintercept = meanGDP, color = isMonitorNonUSE), linetype = "dashed", size = 1) +
+  geom_text(data = lines_df, aes(x = meanGDP, y = 700, label = round(meanGDP, 1), color = isMonitorNonUSE), vjust = -0.5, hjust = 1.3) +
+  scale_fill_manual(values = c("Yes" = "#FED922", "No" = "#1D6B8F")) +
+  scale_color_manual(values = c("Yes" = "#D6BA2C", "No" = "#15536F")) +
+  labs(x = "GDP (PPP) 2015, log",
+       y = "Number of Cities",
+       fill = "AQM") +
+  guides(color = "none") +  # This line removes the color legend
+  theme_minimal()
+
+ggsave(plot = p, filename = paste('plots/FUAsGDPAQM.png', sep = ""),
+       dpi=600, width = 18, height = 15, units='cm')
+
+
+p <- FUAs_subset %>% ggplot(aes(x = log(P15), fill = isMonitorNonUSE))+
+  geom_histogram(bins = 50)+
+  geom_vline(data = lines_df, aes(xintercept = meanPop, color = isMonitorNonUSE), linetype = "dashed", size = 1) +
+  geom_text(data = lines_df, aes(x = meanPop, y = 700, label = round(meanPop, 1), color = isMonitorNonUSE), vjust = -0.5, hjust = -0.2) +
+  scale_fill_manual(values = c("Yes" = "#FED922", "No" = "#1D6B8F")) +
+  scale_color_manual(values = c("Yes" = "#D6BA2C", "No" = "#15536F")) +
+  labs(x = "Population of Cities in 2015, log",
+       y = "Number of Cities",
+       fill = "AQM") +
+  guides(color = "none") +  # This line removes the color legend
+  theme_minimal()
+
+ggsave(plot = p, filename = paste('plots/FUAsPopAQM.png', sep = ""),
+       dpi=600, width = 12, height = 8, units='cm')
+
+
+p <- FUAs_subset %>% ggplot(aes(x = mean_edi, fill = isMonitorNonUSE))+
+  geom_histogram(bins = 15)+
+  geom_vline(data = lines_df, aes(xintercept = meanDemo, color = isMonitorNonUSE), linetype = "dashed", size = 1) +
+  geom_text(data = lines_df, aes(x = meanDemo, y = 900, label = round(meanDemo, 1), color = isMonitorNonUSE), vjust = -0.5, hjust = -0.2) +
+  scale_fill_manual(values = c("Yes" = "#FED922", "No" = "#1D6B8F")) +
+  scale_color_manual(values = c("Yes" = "#D6BA2C", "No" = "#15536F")) +
+  labs(x = "Democracy Index",
+       y = "Number of Cities",
+       fill = "AQM") +
+  guides(color = "none") +  # This line removes the color legend
+  theme_minimal()
+
+ggsave(plot = p, filename = paste('plotsMain/FUAsDemoAQM.png', sep = ""),
+       dpi=600, width = 12, height = 8, units='cm')
+
+
+
+p <- FUAs_subset %>% ggplot(aes(x = log(GDP15_SM_PC), fill = isMonitorNonUSE))+
+  geom_histogram(bins = 50)+
+  geom_vline(data = lines_df, aes(xintercept = meanGDPpc, color = isMonitorNonUSE), linetype = "dashed", size = 1) +
+  geom_text(data = lines_df, aes(x = meanGDPpc, y = 700, label = round(meanGDPpc, 1), color = isMonitorNonUSE), vjust = c(-0.5), hjust = c(1.3, -0.3)) +
+  scale_fill_manual(values = c("Yes" = "#FED922", "No" = "#1D6B8F")) +
+  scale_color_manual(values = c("Yes" = "#D6BA2C", "No" = "#15536F")) +
+  labs(x = "GDP p.c. 2015, log",
+       y = "Number of Cities",
+       fill = "AQM") +
+  guides(color = "none") +  # This line removes the color legend
+  theme_minimal()
+
+ggsave(plot = p, filename = paste('plotsMain/FUAsGDPpcAQM.png', sep = ""),
+       dpi=600, width = 12, height = 8, units='cm')
+
+
+lines_df <- FUAs_nonOECD %>% 
+  group_by(isMonitorNonUSE, vdem_bin) %>% 
+  summarize(meanPollution = mean(pm25VanD20002016, na.rm=T))
+
+p <- FUAs_nonOECD %>% ggplot(aes(x = pm25VanD20002016, fill = isMonitorNonUSE))+
+  geom_histogram(bins = 80)+
+  geom_vline(data = lines_df, aes(xintercept = meanPollution, color = isMonitorNonUSE), linetype = "dashed", size = 1) +
+  geom_text(data = lines_df, aes(x = meanPollution, y = 170,
+                                 label = round(meanPollution, 1), color = isMonitorNonUSE),
+            vjust = c(5, -5, 5, -5), hjust = c(-0.4, 1.2, 1.2, -0.4)) +
+  scale_fill_manual(values = c("Yes" = "#FED922", "No" = "#1D6B8F")) +
+  scale_color_manual(values = c("Yes" = "#D6BA2C", "No" = "#15536F")) +
+  labs(x = expression(paste("Pollution level 2000-2016 (PM2.5 -", italic(" µg/m3)"))),
+       y = "Number of Cities",
+       fill = "AQM") +
+  guides(color = "none") +  # This line removes the color legend
+  theme_minimal()+
+  facet_wrap(~vdem_bin, ncol = 1, scales = "free_y",
+             labeller = as_labeller(c("democracy" = "Democratic Setting",
+                                      "non-democracy" = "Non-Democratic Setting")))+
+  theme(strip.text = element_text(size = 12))  # Change the size of the facet labels
+
+p
+
+ggsave(plot = p, filename = paste('plots/FUAsDemPollutionAQM_fullDF.png', sep = ""),
+       dpi=600, width = 18, height = 20, units='cm')
+
+
+lines_df <- FUAs_subset %>% 
+  group_by(isMonitorNonUSE, vdem_bin) %>% 
+  summarize(meanPollution = mean(pm25VanD20002016, na.rm=T))
+
+p <- FUAs_subset %>% ggplot(aes(x = pm25VanD20002016, fill = isMonitorNonUSE))+
+  geom_histogram(bins = 80)+
+  geom_vline(data = lines_df, aes(xintercept = meanPollution, color = isMonitorNonUSE), linetype = "dashed", size = 1) +
+  geom_text(data = lines_df, aes(x = meanPollution, y = 170,
+                                 label = round(meanPollution, 1), color = isMonitorNonUSE),
+            vjust = c(5, -0.4, 5, -0.4), hjust = c(-0.4, -0.4, 1.2, 1.2)) +
+  scale_fill_manual(values = c("Yes" = "#FED922", "No" = "#1D6B8F")) +
+  scale_color_manual(values = c("Yes" = "#D6BA2C", "No" = "#15536F")) +
+  labs(x = expression(paste("Pollution level 2000-2016 (PM2.5 -", italic(" µg/m3)"))),
+       y = "Number of Cities",
+       fill = "AQM") +
+  guides(color = "none") +  # This line removes the color legend
+  theme_minimal()+
+  facet_wrap(~vdem_bin, ncol = 1, scales = "free_y",
+             labeller = as_labeller(c("democracy" = "Democratic Setting",
+                                      "non-democracy" = "Non-Democratic Setting")))+
+  theme(strip.text = element_text(size = 12))  # Change the size of the facet labels
+
+p
+
+
+# Calculate the overall range of the pm25VanD20002016 variable
+x_range <- range(FUAs_subset$pm25VanD20002016, na.rm = TRUE)
+
+# Split the dataset into two subsets
+democracy_data <- FUAs_subset %>% filter(vdem_bin == "democracy")
+non_democracy_data <- FUAs_subset %>% filter(vdem_bin == "non-democracy")
+
+# Calculate mean pollution for democracy and non-democracy separately
+lines_df_democracy <- democracy_data %>% 
+  group_by(isMonitorNonUSE) %>% 
+  summarize(meanPollution = mean(pm25VanD20002016, na.rm = TRUE))
+
+lines_df_non_democracy <- non_democracy_data %>% 
+  group_by(isMonitorNonUSE) %>% 
+  summarize(meanPollution = mean(pm25VanD20002016, na.rm = TRUE))
+
+# Create the plot for democratic setting
+p_democracy <- ggplot(democracy_data, aes(x = pm25VanD20002016, fill = isMonitorNonUSE)) +
+  geom_histogram(bins = 80) +
+  geom_vline(data = lines_df_democracy, aes(xintercept = meanPollution, color = isMonitorNonUSE), linetype = "dashed", size = 1) +
+  geom_text(data = lines_df_democracy, aes(x = meanPollution, y = 170,
+                                           label = round(meanPollution, 1), color = isMonitorNonUSE),
+            vjust = c(5, 5), hjust = c(-0.4, 1.2)) +
+  scale_fill_manual(values = c("Yes" = "#FED922", "No" = "#1D6B8F")) +
+  scale_color_manual(values = c("Yes" = "#D6BA2C", "No" = "#15536F")) +
+  labs(x = expression(paste("Pollution level 2000-2016 (PM2.5 -", italic(" µg/m3)"))),
+       y = "Number of Cities",
+       fill = "AQM",
+       title = "Democratic Setting") +
+  guides(color = "none") +  # This line removes the color legend
+  theme_minimal() +
+  theme(strip.text = element_text(size = 12)) +  # Change the size of the facet labels
+  xlim(x_range)
+
+# Create the plot for non-democratic setting
+p_non_democracy <- ggplot(non_democracy_data, aes(x = pm25VanD20002016, fill = isMonitorNonUSE)) +
+  geom_histogram(bins = 80) +
+  geom_vline(data = lines_df_non_democracy, aes(xintercept = meanPollution, color = isMonitorNonUSE), linetype = "dashed", size = 1) +
+  geom_text(data = lines_df_non_democracy, aes(x = meanPollution, y = 170,
+                                               label = round(meanPollution, 1), color = isMonitorNonUSE),
+            vjust = c(0, 0), hjust = c(-0.4, 1.2)) +
+  scale_fill_manual(values = c("Yes" = "#FED922", "No" = "#1D6B8F")) +
+  scale_color_manual(values = c("Yes" = "#D6BA2C", "No" = "#15536F")) +
+  labs(x = expression(paste("Pollution level 2000-2016 (PM2.5 -", italic(" µg/m3)"))),
+       y = "Number of Cities",
+       fill = "AQM",
+       title = "Non-Democratic Setting") +
+  guides(color = "none") +  # This line removes the color legend
+  theme_minimal() +
+  theme(strip.text = element_text(size = 12)) +  # Change the size of the facet labels
+  xlim(x_range)
+
+# Print the plots
+print(p_democracy)
+print(p_non_democracy)
+
+
+
+
+ggsave(plot = p_democracy, filename = paste('plotsMain/FUAsDemPollutionAQM_subset_demo.png', sep = ""),
+       dpi=600, width = 12, height = 8, units='cm')
+
+ggsave(plot = p_non_democracy, filename = paste('plotsMain/FUAsDemPollutionAQM_subset_nonDemo.png', sep = ""),
+       dpi=600, width = 12, height = 8, units='cm')
+
+
+
+
+
+
+
+
+
+p <- FUAs_nonOECD %>% ggplot(aes(x = pm25VanD20002016, fill = INDCHNOTH))+
+  geom_histogram(alpha = 0.6, position="identity", bins = 70)+
+  scale_fill_manual(values = c("#DDBEA8", "#246A73", "black"),
+                    limits = c("India", "China", "Other"))+
+  labs(fill = "Country", y = "Number of Cities", x = expression(paste("Pollution level (PM2.5 -", italic(" µg/m3)"))))+
+  theme_minimal()
+
+p
+
+ggsave(plot = p, filename = paste('plotsMain/FUAsPollutionINDCHNOTH.png', sep = ""),
+       dpi=600, width = 12, height = 8, units='cm')
+
+
+country_FUAcounts <- FUAs_nonOECD %>%
+  group_by(CTR_MN_NM) %>%
+  summarise(total_count = n(),
+            count_with_condition = sum(numberMonitors > 1),
+            count_without_condition = sum(numberMonitors <= 1)) %>%
+  slice_max(total_count, n = 30) %>%
+  pivot_longer(cols = starts_with("count"),
+               names_to = "Condition",
+               values_to = "Count") %>%
+  mutate(Condition = recode(Condition, 
+                            count_with_condition = "Yes", 
+                            count_without_condition = "No"))
+
+p <- ggplot(country_FUAcounts, aes(x = reorder(CTR_MN_NM, -total_count), y = Count, fill = Condition)) +
+  geom_bar(stat = "identity") +
+  # geom_bar(stat = "identity", col = "black") +
+  scale_fill_manual(values = c("Yes" = "#FED922", "No" = "#1D6B8F")) +
+  labs(title = "Number of Cities in Each Country",
+       x = "Country",
+       y = "Number of Cities",
+       fill = "AQM") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+ggsave(plot = p, filename = paste('plots/FUAnbCountry30_2.png', sep = ""),
+       dpi=600, width = 12, height = 8, units='cm')
+
+
+country_FUAcounts <- FUAs_subset %>%
+  group_by(CTR_MN_NM) %>%
+  summarise(total_count = n(),
+            count_with_condition = sum(numberMonitors > 1),
+            count_without_condition = sum(numberMonitors <= 1)) %>%
+  slice_max(total_count, n = 30) %>%
+  pivot_longer(cols = starts_with("count"),
+               names_to = "Condition",
+               values_to = "Count") %>%
+  mutate(Condition = recode(Condition, 
+                            count_with_condition = "Yes", 
+                            count_without_condition = "No"))
+
+p <- ggplot(country_FUAcounts, aes(x = reorder(CTR_MN_NM, -total_count), y = Count, fill = Condition)) +
+  # geom_bar(stat = "identity", col = "black") +
+  geom_bar(stat = "identity") +
+  scale_fill_manual(values = c("Yes" = "#FED922", "No" = "#1D6B8F")) +
+  labs(title = "Number of Cities in Each Country",
+       x = "Country",
+       y = "Number of Cities",
+       fill = "AQM") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+ggsave(plot = p, filename = paste('plots/FUAnbCountry30_subset_2.png', sep = ""),
+       dpi=600, width = 12, height = 8, units='cm')
+
+FUAs_sp <- st_read("data/FUA_fixed_geom.gpkg") # spatially explicit FUAs
+
+listFUA_nonOECD <- unique(df_nonOECD_fua$ID_HDC_G0)
+
+FUAs_nonOECD <- subset(FUAs_sp, ID_HDC_G0 %in% listFUA_nonOECD)
+
+points_within_fuas <- st_join(data3Sub_sf, FUAs_nonOECD, join = st_intersects) %>% subset(., !is.na(ID_HDC_G0))
+
+points_within_fuas <- subset(points_within_fuas, type %in% c("Reference Grade", "Sensor"))
+
+# Calculate the total number of monitors for each country
+totalMonitorsPerCountry <- points_within_fuas %>%
+  group_by(CTR_MN_NM) %>%
+  summarise(totalMonitors = n(), .groups = 'drop') %>%
+  arrange(desc(totalMonitors)) %>%
+  slice_head(n = 30)
+
+# Filter the original dataset to include only the top 30 countries
+statsCountry <- points_within_fuas %>%
+  group_by(CTR_MN_NM, type) %>%
+  summarise(numberMonitors = n(), .groups = 'drop') %>%
+  filter(CTR_MN_NM %in% totalMonitorsPerCountry$CTR_MN_NM) %>%
+  group_by(CTR_MN_NM) %>%
+  mutate(totalMonitors = sum(numberMonitors)) %>%
+  ungroup()
+
+p <- ggplot(statsCountry, aes(x = reorder(CTR_MN_NM, -totalMonitors), y = numberMonitors, fill = type)) +
+  geom_bar(stat = "identity") +
+  scale_fill_manual(values = c("Reference Grade" = "#2F3061", "Sensor" = "#C2948A")) +
+  labs(fill = "Type",
+       x = "Country",
+       y = "Number of Monitors") +
+  theme_minimal()+
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, size= 7))  # Rotating x-axis labels
+
+ggsave(plot = p, filename = paste('plotsMain/nbMonitorsCountries30.png', sep = ""),
+       dpi=600, width = 15, height = 8, units='cm')
+
+# Graph weighted by pop
+
+totalMonitorsPerCountry <- points_within_fuas %>%
+  group_by(CTR_MN_NM) %>%
+  summarise(totalMonitors = n(),
+            .groups = 'drop') %>%
+  arrange(desc(totalMonitors)) %>%
+  slice_head(n = 30)
+
+totalFUAPopPerCountry <- as.data.frame(FUAs_nonOECD) %>%
+  group_by(CTR_MN_NM) %>%
+  summarise(totalPop = sum(P15),
+            .groups = 'drop')
+
+# Filter the original dataset to include only the top 30 countries
+statsCountry <- points_within_fuas %>%
+  group_by(CTR_MN_NM, type) %>%
+  summarise(numberMonitors = n(), .groups = 'drop') %>%
+  filter(CTR_MN_NM %in% totalMonitorsPerCountry$CTR_MN_NM) %>%
+  group_by(CTR_MN_NM) %>%
+  mutate(totalMonitors = sum(numberMonitors)) %>%
+  ungroup()
+
+statsCountry <- merge(statsCountry, totalFUAPopPerCountry, by = "CTR_MN_NM")
+
+statsCountry$weightedMonitoring <- (statsCountry$numberMonitors / statsCountry$totalPop) * 1000000
+statsCountry$weightedMonitoringTotal <- (statsCountry$totalMonitors / statsCountry$totalPop) * 1000000
+
+p <- ggplot(statsCountry, aes(x = reorder(CTR_MN_NM, -weightedMonitoringTotal), y = weightedMonitoring, fill = type)) +
+  geom_bar(stat = "identity") +
+  scale_fill_manual(values = c("Reference Grade" = "#2F3061", "Sensor" = "#C2948A")) +
+  labs(fill = "Type",
+       x = "Country",
+       y = "Number of Monitors per 1 million people") +
+  theme_minimal()+
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, size= ))  # Rotating x-axis labels
+
+p <- ggplot(statsCountry, aes(x = reorder(CTR_MN_NM, -weightedMonitoringTotal), y = weightedMonitoring, fill = type)) +
+  geom_bar(stat = "identity") +
+  scale_fill_manual(values = c("Reference Grade" = "#2F3061", "Sensor" = "#C2948A")) +
+  labs(fill = "Type",
+       x = "Country",
+       y = "Number of Monitors\nper 1 million people") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 7),  # Rotating x-axis labels
+        plot.margin = margin(t = 1, r = 1, b = 1, l = 20))  # Adding margin to the bottom
+
+p
+
+ggsave(plot = p, filename = paste('plotsMain/nbMonitorsCountries30_pop.png', sep = ""),
+       dpi=600, width = 16, height = 8, units='cm')
+
+```
+
+
+## Figure 4 + some supp (marginal effects and many robustness checks)
+
+```{r Figure 4 and Supplementary Figure 1 / Predicted Probabilities . Marginal Means + Multiverse}
+
+set.seed(321)
+
+library(tidyverse)
+library(multiverse)
+library(perm)
+
+"%ni%" = Negate("%in%")
+
+FUA_data <- read.csv("outputData/FUA_nsf_merged_monitorsOpenAQWAQI.csv")
+
+FUA_gridded <- read.csv("outputData/FUA_nsf_monitors_mergedGrid.csv")
+
+FUA_data <- merge(FUA_data, FUA_gridded, by = "ID_HDC_G0")
+
+nonOECDFUA <- subset(FUA_data, oecd != 'OECD')
+nonOECDFUA <- subset(nonOECDFUA, INCM_CMI %ni% c('HIC', 'Other') & !is.na(INCM_CMI)) # remove high income countries and NA
+nonOECDFUA <- subset(nonOECDFUA, !is.na(vdem_bin)) # here I subset the countries that are not in the vdem dataset
+
+nonOECDFUA$vdem_bin <- ifelse(nonOECDFUA$vdem_bin == "non-democracy", "0non-democracy",
+                                       ifelse(nonOECDFUA$vdem_bin == "democracy", "1democracy", NA))
+
+nonOECDFUA <- subset(nonOECDFUA, GDP15_SM != 0) # here I subset the countries that are not in the vdem dataset
+
+nonOECDFUA$GDP15_SMpc <- nonOECDFUA$GDP15_SM/nonOECDFUA$P15
+
+nonOECDFUA$isMonitor <- as.factor(ifelse((nonOECDFUA$numberMonitor - nonOECDFUA$numberUSEmbassyMonitors) > 0, 1, 0))
+
+# Try with a dummy IND and CHN
+nonOECDFUA$dummyCHN <- as.factor(ifelse(nonOECDFUA$CTR_MN_NM == "China", 1, 0))
+nonOECDFUA$dummyIND <- as.factor(ifelse(nonOECDFUA$CTR_MN_NM == "India", 1, 0))
+
+# Below we sub-sample IND and CHN because they make up the whole dataset otherwise
+# Step 1: Identify the number of rows of the third most present label
+label_counts <- nonOECDFUA %>%
+  count(CTR_MN_NM) %>%
+  arrange(desc(n))
+
+# Number of rows to sample for "India" and "China"
+target_rows <- label_counts$n[3]
+
+# Subsample for "India" and "China"
+# Step 2: Adjust the rows for "India"
+df_india_adjusted <- nonOECDFUA %>%
+  filter(CTR_MN_NM == "India") %>%
+  sample_n(min(n(), target_rows))
+
+# Step 2: Adjust the rows for "China"
+df_china_adjusted <- nonOECDFUA %>%
+  filter(CTR_MN_NM == "China") %>%
+  sample_n(min(n(), target_rows))
+
+# Combine adjusted "India" and "China" with other labels
+nonOECDFUA_adjusted <- nonOECDFUA %>%
+  filter(!CTR_MN_NM %in% c("India", "China")) %>%
+  bind_rows(df_india_adjusted, df_china_adjusted)
+
+
+###### Figure 4 ######
+# Predicted Probabilities Plots #
+df_PP <- nonOECDFUA_adjusted
+df_PP$GDP15_SMpc <- log(df_PP$GDP15_SMpc+1)
+df_PP$P15 <- log(df_PP$P15)
+df_PP$conflict_cumulative_intensity_22 <- as.numeric(as.factor(df_PP$conflict_cumulative_intensity_22))-1
+df_PP$vdem_bin <- as.numeric(as.factor(df_PP$vdem_bin))-1
+df_PP$capital <- as.numeric(as.factor(df_PP$capital))-1
+df_PP$dummyCHN <- as.numeric(as.factor(df_PP$dummyCHN))-1
+df_PP$dummyIND <- as.numeric(as.factor(df_PP$dummyIND))-1
+
+# now automatize this #
+
+generate_predictions <- function(df, model, variable, quantiles) {
+  # Create a list to store data frames
+  newdata_list <- lapply(quantiles, function(q) {
+    df_copy <- df
+    df_copy[[variable]] <- quantile(df[[variable]], q, na.rm=T)
+    df_copy$quantile <- paste0(q * 100, "th percentile")
+    return(df_copy)
+  })
+  
+  # Combine all data frames into one
+  newdata_combined <- do.call(rbind, newdata_list)
+  
+  # Generate predictions for the combined dataset
+  predicted_values <- predict(model, newdata = newdata_combined, type = "response")
+  
+  # Add quantile information to the predicted data frame
+  predicted_df <- cbind(newdata_combined, predicted = predicted_values)
+  
+  return(predicted_df)
+}
+
+fit <- glm(formula = isMonitor
+                            ~ GDP15_SMpc +  pm25VanD20002016 * vdem_bin +
+                    conflict_cumulative_intensity_22 +
+                    CPI_2012_2022 +
+                    capital +
+                    P15
+                    + dummyCHN + dummyIND
+                  , binomial(link = "logit"), data = df_PP)
+
+
+variables <- c("GDP15_SMpc", "CPI_2012_2022", "pm25VanD20002016", "P15")
+quantiles <- c(0.25, 0.75)
+
+all_predictions <- lapply(variables, function(var) {
+  generate_predictions(df_PP, fit, var, quantiles)
+})
+
+# Perform the permutation test and compute summary statistics based on quantiles
+summary_statistics <- lapply(seq_along(all_predictions), function(i) {
+  pred_df <- all_predictions[[i]]
+
+  # Perform permutation test between quantiles
+  perm_test <- permTS(pred_df$predicted ~ pred_df$quantile,
+                      method = "exact.mc",
+                      control = permControl(nmc = 1000))
+
+  # Extract p-value
+  p_value <- perm_test$p.value
+
+  # Compute summary statistics
+  stats <- aggregate(predicted ~ quantile, data = pred_df,
+                     FUN = function(x) c(mean = mean(x, na.rm=T),
+                                         median = median(x, na.rm=T),
+                                         min = min(x, na.rm=T),
+                                         max = max(x, na.rm=T),
+                                         Q25 = unname(quantile(x, 0.25, na.rm = TRUE)),
+                                         Q75 = unname(quantile(x, 0.75, na.rm = TRUE)),
+                                         sd = sd(x, na.rm=T)))
+
+  # Convert to data frame
+  stats_df <- as.data.frame(stats)
+  colnames(stats_df) <- c("Quantile", "Predicted_Statistics")
+
+  # Separate the statistics into individual columns
+  stats_df <- cbind(
+    stats_df["Quantile"],
+    as.data.frame(stats_df$Predicted_Statistics)
+  )
+
+  # Add the variable name and p-value as columns
+  stats_df$Variable <- variables[i]
+  stats_df$P_Value <- p_value
+
+  # Rename the columns to be more descriptive
+  colnames(stats_df) <- c("Quantile", "Mean_Predicted", "Median_Predicted", "Min_Predicted", "Max_Predicted",
+                          "Quantile25", "Quantile975", "Std_Error", "Variable", "P_Value")
+
+  return(stats_df)
+})
+
+# Combine the results for all variables into one dataframe
+summary_df <- do.call(rbind, summary_statistics)
+
+# View the final summary dataframe
+summary_df
+
+# # First step for continuous variables
+ggplot(summary_df, aes(x = Quantile, y = Mean_Predicted, color = Variable)) +
+  geom_point() +
+  geom_line(aes(group = Variable)) +
+  labs(
+    title = "Summary of Predicted Probabilities",
+    x = "Quantile",
+    y = "Mean Predicted Probability"
+  ) +
+  theme_minimal()
+
+
+# categorical variables #
+generate_predictions_binary <- function(df, model, variable) {
+  # Create datasets for binary 0 and 1 scenarios
+  df_0 <- df
+  df_0[[variable]] <- 0
+  df_0$Level <- "Baseline"
+  
+  df_1 <- df
+  df_1[[variable]] <- 1
+  df_1$Level <- "Higher Value"
+  
+  # Combine both datasets
+  newdata_combined <- rbind(df_0, df_1)
+  
+  # Generate predictions
+  predicted_values <- predict(model, newdata = newdata_combined, type = "response")
+  
+  # Add predictions to the dataset
+  predicted_df <- cbind(newdata_combined, predicted = predicted_values)
+  
+  return(predicted_df)
+}
+
+variables <- c("vdem_bin", "conflict_cumulative_intensity_22", "capital", "dummyCHN", "dummyIND") 
+
+all_predictions <- lapply(variables, function(var) {
+  generate_predictions_binary(df_PP, fit, var)
+})
+
+
+
+# Perform the permutation test and compute summary statistics
+summary_statistics <- lapply(seq_along(all_predictions), function(i) {
+  pred_df <- all_predictions[[i]]
+  
+  # Perform permutation test between the two levels
+  perm_test <- permTS(pred_df$predicted ~ pred_df$Level, 
+                      method = "exact.mc", 
+                      control = permControl(nmc = 1000))
+  
+  # Extract p-value
+  p_value <- perm_test$p.value
+  
+  # Compute summary statistics
+  stats <- aggregate(predicted ~ Level, data = pred_df, 
+                     FUN = function(x) c(mean = mean(x, na.rm=T), 
+                                         median = median(x, na.rm=T), 
+                                         min = min(x, na.rm=T), 
+                                         max = max(x, na.rm=T),
+                                         Q25 = unname(quantile(x, 0.25, na.rm = TRUE)), 
+                                         Q75 = unname(quantile(x, 0.75, na.rm = TRUE)), 
+                                         sd = sd(x, na.rm=T)))
+  
+  # Convert to data frame
+  stats_df <- as.data.frame(stats)
+  colnames(stats_df) <- c("Level", "Predicted_Statistics")
+  
+  # Separate the statistics into individual columns
+  stats_df <- cbind(
+    stats_df["Level"],
+    as.data.frame(stats_df$Predicted_Statistics)
+  )
+  
+  # Add the variable name and p-value as columns
+  stats_df$Variable <- variables[i]
+  stats_df$P_Value <- p_value
+  
+  # Rename the columns to be more descriptive
+  colnames(stats_df) <- c("Level", "Mean_Predicted", "Median_Predicted", "Min_Predicted", "Max_Predicted", 
+                          "Quantile25", "Quantile975", "Std_Error", "Variable", "P_Value")
+  
+  return(stats_df)
+})
+
+# Combine the results for all variables into one dataframe
+summary_df_categorical <- do.call(rbind, summary_statistics)
+
+print(summary_df_categorical)
+
+# merge 2 datasets # 
+
+summary_df$Level <- ifelse(summary_df$Quantile == "25th percentile", "Baseline", "Higher Value")
+summary_df$Quantile <- NULL
+
+summary_df <- summary_df[,c(10, 1:9)]
+
+totalDF <- rbind(summary_df, summary_df_categorical)
+
+n <- nrow(df_PP)
+totalDF$lowCI <- totalDF$Mean_Predicted - qt(0.975,df=n-1)*totalDF$Std_Error/sqrt(n)
+totalDF$highCI <- totalDF$Mean_Predicted + qt(0.975,df=n-1)*totalDF$Std_Error/sqrt(n)
+
+
+generate_interaction_predictions <- function(model, democracy_var, pollution_var, data, democracy_levels, pollution_quantiles) {
+  
+  # Create empty list to store the modified datasets
+  datasets <- list()
+  
+  # Loop over each combination of democracy and pollution levels
+  for (dem_level in democracy_levels) {
+    for (pollution_q in pollution_quantiles) {
+      # Duplicate the original data
+      temp_data <- data
+      
+      # Set the democracy level
+      temp_data[[democracy_var]] <- dem_level
+      
+      # Set the pollution level based on the specified quantile
+      temp_data[[pollution_var]] <- quantile(data[[pollution_var]], probs = pollution_q, na.rm=T)
+      
+      # Add a descriptive label for this scenario
+      temp_data$Scenario <- paste0("Democracy_", dem_level, "_Pollution_", pollution_q)
+      
+      # Store the modified dataset
+      datasets[[length(datasets) + 1]] <- temp_data
+    }
+  }
+  
+  # Combine all datasets into one
+  newdata_combined <- do.call(rbind, datasets)
+  
+  # Generate predictions
+  predictions <- predict(model, newdata = newdata_combined, type = "response")
+  
+  newdata_combined$predicted <- predictions
+  
+  # Summarize predictions (mean, median, min, max, and sd)
+  summary_stats <- newdata_combined %>%
+    group_by(Scenario) %>%
+    summarise(
+      Mean_Predicted = mean(predicted, na.rm=T),
+      Median_Predicted = median(predicted, na.rm=T),
+      Min_Predicted = min(predicted, na.rm=T),
+      Max_Predicted = max(predicted, na.rm=T),
+      SD_Predicted = sd(predicted, na.rm=T)
+    )
+  
+  return(list(prediction_grid = newdata_combined, summary_stats = summary_stats))
+}
+
+
+# Generate predictions and summary stats
+result <- generate_interaction_predictions(
+  model = fit,
+  democracy_var = "vdem_bin",
+  pollution_var = "pm25VanD20002016",
+  data = df_PP,
+  democracy_levels = c(0, 1),  # Assuming 0 = low, 1 = high democracy
+  pollution_quantiles = c(0.25, 0.75)
+)
+
+# Access the prediction grid and summary statistics
+prediction_grid <- result$prediction_grid
+summary_stats <- result$summary_stats
+
+summary_stats$P_Value <- NA
+
+summary_stats$P_Value[summary_stats$Scenario %in% c("Democracy_0_Pollution_0.25", "Democracy_0_Pollution_0.75")] <- permTS(subset(prediction_grid, Scenario %in% c("Democracy_0_Pollution_0.25", "Democracy_0_Pollution_0.75"))$predicted ~
+                      subset(prediction_grid, Scenario %in% c("Democracy_0_Pollution_0.25", "Democracy_0_Pollution_0.75"))$Scenario, 
+                    method = "exact.mc", 
+                    control = permControl(nmc = 1000))$p.value
+
+summary_stats$P_Value[summary_stats$Scenario %in% c("Democracy_1_Pollution_0.25", "Democracy_1_Pollution_0.75")] <- permTS(subset(prediction_grid, Scenario %in% c("Democracy_1_Pollution_0.25", "Democracy_1_Pollution_0.75"))$predicted ~
+                      subset(prediction_grid, Scenario %in% c("Democracy_1_Pollution_0.25", "Democracy_1_Pollution_0.75"))$Scenario, 
+                    method = "exact.mc", 
+                    control = permControl(nmc = 1000))$p.value
+
+# Merge with the rest of the dataset
+
+summary_stats_toMerge <- summary_stats %>% 
+  mutate(Level = Scenario,
+         Quantile25 = NA,
+         Quantile975 = NA,
+         Std_Error = SD_Predicted,
+         Variable = Scenario,
+         lowCI = Mean_Predicted - qt(0.975,df=n-1)*SD_Predicted/sqrt(n),
+         highCI = Mean_Predicted + qt(0.975,df=n-1)*SD_Predicted/sqrt(n),
+         Variable_Level = Scenario) %>% 
+  select(colnames(totalDF))
+
+final_df <- rbind(totalDF, summary_stats_toMerge)
+
+final_df <- final_df %>% rename(Scenario = Level)
+
+final_df$Scenario <- c("Low Income", "High Income", "Low Corruption", "High Corruption",
+                       "Low Pollution", "High Pollution", "Low Population", "High Population",
+                       "Not a Democracy", "Democracy", "Not at War", "At War",
+                       "Not a Capital", "Capital", "Not China", "China",
+                       "Not India", "India", "Low Pollution * Non Democracy", "High Pollution * Non Democracy",
+                       "Low Pollution * Democracy", "High Pollution * Democracy"
+                       )
+
+
+final_df2 <- final_df %>%
+  mutate(
+    Variable = case_when(
+      grepl("Income", Scenario) ~ "Income",
+      grepl("Corruption", Scenario) ~ "Corruption",
+      grepl("^Low Pollution$", Scenario) | grepl("^High Pollution$", Scenario) ~ "Pollution",
+      grepl("Pollution \\* Democracy", Scenario) ~ "Pollution in\n Democracies",
+      grepl("Pollution \\* Non Democracy", Scenario) ~ "Pollution in\nNon-Democracies",
+      grepl("Population", Scenario) ~ "Population",
+      grepl("Democracy", Scenario) ~ "Democracy",
+      grepl("War", Scenario) ~ "War",
+      grepl("Capital", Scenario) ~ "Capital",
+      grepl("China", Scenario) ~ "China",
+      grepl("India", Scenario) ~ "India"
+    ),
+    Level = case_when(
+      grepl("Low", Scenario) ~ "Low",
+      grepl("High", Scenario) ~ "High",
+      # grepl("Non", Scenario) ~ "Non",
+      # grepl("Not", Scenario) ~ "Not",
+      TRUE ~ sub("", "", Scenario) # For Democracy, War, Capital, China, India
+    )
+  )
+
+# Arrange by the new variables
+final_df2 <- final_df2 %>%
+  arrange(Variable, Level)
+
+# Create a grouping variable
+final_df3 <- final_df2 %>%
+    mutate(group = case_when(
+        Variable %in% c("Population", "War", "Capital", "China", "India", "Corruption") ~ "Control Variables",
+        TRUE ~ "Key Variables"
+    ))
+
+# Desired order of terms
+term_order <- c("Income",
+                "War",
+                "Democracy",
+                "Corruption",
+                "Pollution in\nNon-Democracies",
+                "Capital",
+                "Pollution in\n Democracies",
+                "Population",
+                "Pollution",
+                    
+                    
+                    "China",
+                    "India"
+                    )
+
+# Recode and set the levels of the term factor
+final_df3 <- final_df3 %>%
+  mutate(Variable = factor(Variable, levels = term_order))
+
+final_df3$sign <- ifelse(final_df3$P_Value < 0.05, "yes", "no")
+
+p1 <- ggplot(subset(final_df3, group == "Key Variables"), aes(y = Level, x = Mean_Predicted)) +
+  geom_point(size = 2) +
+  geom_linerange(aes(xmin = lowCI, xmax = highCI, group = Scenario, alpha = sign), linewidth = 1.5) +
+  facet_wrap(~ Variable, scales = "free_y", nrow = 6, strip.position = "left") +
+  labs(x = "Mean Predicted Value", y = "", title = "Key Variables") +
+  theme_minimal() +
+  scale_alpha_manual(values = c(0.2, 1))+
+  theme(
+    strip.placement = "outside",
+    strip.text.y = element_text(angle = 0),
+    axis.text.y = element_text(size = 10),
+    strip.text = element_text(face = "bold"),
+    legend.position = "none"
+  )
+
+p2 <- ggplot(subset(final_df3, group == "Control Variables"), aes(y = Level, x = Mean_Predicted)) +
+  geom_point(size = 2) +
+  geom_linerange(aes(xmin = lowCI, xmax = highCI, group = Scenario), linewidth = 1.5) +
+  facet_wrap(~ Variable, scales = "free_y", nrow = 6, strip.position = "left") +
+  labs(x = "Mean Predicted Value", y = "", title = "Control Variables") +
+  theme_minimal() +
+  theme(
+    strip.placement = "outside",
+    strip.text.y = element_text(angle = 0),
+    axis.text.y = element_text(size = 10),
+    strip.text = element_text(face = "bold"),
+    legend.position = "none"
+  )
+
+ggsave(plot = p1, filename = paste('plotsMain/halfFigure4predictedProbKey.png', sep = ""),
+       dpi=600, width = 18, height = 16, units='cm')
+
+ggsave(plot = p2, filename = paste('plotsMain/halfFigure4predictedProbControl.png', sep = ""),
+       dpi=600, width = 18, height = 16, units='cm')
+
+library(patchwork)
+
+arranged_plots <- p1 + p2
+
+arranged_plots
+
+# Save the arranged plots as a PNG
+# ggsave("plotsMain/Figure4.pdf", arranged_plots, width = 11, height = 10)
+ggsave("plotsMain/Figure4.png", arranged_plots, width = 11, height = 10)
+
+##### Supplementary Figure 1 ##### 
+# Now we test robustness with reference grade / air sensor only and different subsets
+
+nonOECDFUA_rdy <- nonOECDFUA
+nonOECDFUA_rdy$GDP15_SMpc <- log(nonOECDFUA_rdy$GDP15_SMpc+1)
+nonOECDFUA_rdy$P15 <- log(nonOECDFUA_rdy$P15)
+nonOECDFUA_rdy$conflict_cumulative_intensity_22 <- as.numeric(as.factor(nonOECDFUA_rdy$conflict_cumulative_intensity_22))-1
+nonOECDFUA_rdy$vdem_bin <- as.numeric(as.factor(nonOECDFUA_rdy$vdem_bin))-1
+nonOECDFUA_rdy$capital <- as.numeric(as.factor(nonOECDFUA_rdy$capital))-1
+nonOECDFUA_rdy$dummyCHN <- as.numeric(as.factor(nonOECDFUA_rdy$dummyCHN))-1
+nonOECDFUA_rdy$dummyIND <- as.numeric(as.factor(nonOECDFUA_rdy$dummyIND))-1
+
+nonOECDFUA_adjusted_rdy <- nonOECDFUA_adjusted
+nonOECDFUA_adjusted_rdy$GDP15_SMpc <- log(nonOECDFUA_adjusted_rdy$GDP15_SMpc+1)
+nonOECDFUA_adjusted_rdy$P15 <- log(nonOECDFUA_adjusted_rdy$P15)
+nonOECDFUA_adjusted_rdy$conflict_cumulative_intensity_22 <- as.numeric(as.factor(nonOECDFUA_adjusted_rdy$conflict_cumulative_intensity_22))-1
+nonOECDFUA_adjusted_rdy$vdem_bin <- as.numeric(as.factor(nonOECDFUA_adjusted_rdy$vdem_bin))-1
+nonOECDFUA_adjusted_rdy$capital <- as.numeric(as.factor(nonOECDFUA_adjusted_rdy$capital))-1
+nonOECDFUA_adjusted_rdy$dummyCHN <- as.numeric(as.factor(nonOECDFUA_adjusted_rdy$dummyCHN))-1
+nonOECDFUA_adjusted_rdy$dummyIND <- as.numeric(as.factor(nonOECDFUA_adjusted_rdy$dummyIND))-1
+
+  
+mv <- multiverse()
+
+# Branching on dataset
+inside(mv, {
+  dataset <- branch(dataset_choice,
+             data1 = nonOECDFUA_rdy,
+             data2 = nonOECDFUA_adjusted_rdy)
+}
+       )
+
+extract_variables(mv, dataset)
+
+# Branching on model type
+inside(mv, {
+  
+  dataset$numberMonitors <- branch(monitorType,
+                                   "everything_noEmbassy" ~ dataset$numberMonitors - dataset$numberUSEmbassyMonitors,
+                                   "ref_only" ~ dataset$numberRefMonitors,
+                                   "airSensors_only" ~ dataset$numberSensMonitors)
+  
+  dataset$isMonitor <- as.factor(ifelse(dataset$numberMonitors>0, 1, 0))
+  
+  fit <- glm(formula = isMonitor
+                              ~ GDP15_SMpc +  pm25VanD20002016 * vdem_bin +
+                      conflict_cumulative_intensity_22 +
+                      CPI_2012_2022 +
+                      capital +
+                      P15
+                      + dummyCHN + dummyIND
+                    , binomial(link = "logit"), data = dataset)
+  
+  tidied_coefs <- tidy(fit, conf.int = TRUE)
+
+  }
+)
+
+inside(mv, {
+   
+  generate_predictions <- function(df, model, variable, quantiles) {
+  # Create a list to store data frames
+  newdata_list <- lapply(quantiles, function(q) {
+    df_copy <- df
+    df_copy[[variable]] <- quantile(df[[variable]], q, na.rm=T)
+    df_copy$quantile <- paste0(q * 100, "th percentile")
+    return(df_copy)
+  })
+  
+  # Combine all data frames into one
+  newdata_combined <- do.call(rbind, newdata_list)
+  
+  # Generate predictions for the combined dataset
+  predicted_values <- predict(model, newdata = newdata_combined, type = "response")
+  
+  # Add quantile information to the predicted data frame
+  predicted_df <- cbind(newdata_combined, predicted = predicted_values)
+  
+  return(predicted_df)
+}
+
+# fit <- glm(formula = isMonitor
+#                             ~ GDP15_SMpc +  pm25VanD20002016 * vdem_bin +
+#                     conflict_cumulative_intensity_22 +
+#                     CPI_2012_2022 +
+#                     capital +
+#                     P15
+#                     + dummyCHN + dummyIND
+#                   , binomial(link = "logit"), data = dataset)
+
+
+variables <- c("GDP15_SMpc", "CPI_2012_2022", "pm25VanD20002016", "P15")  # Replace with your variables
+quantiles <- c(0.25, 0.75)
+
+all_predictions <- lapply(variables, function(var) {
+  generate_predictions(dataset, fit, var, quantiles)
+})
+
+
+# Perform the permutation test and compute summary statistics based on quantiles
+summary_statistics <- lapply(seq_along(all_predictions), function(i) {
+  pred_df <- all_predictions[[i]]
+
+  # Perform permutation test between quantiles
+  perm_test <- permTS(pred_df$predicted ~ pred_df$quantile,
+                      method = "exact.mc",
+                      control = permControl(nmc = 1000))
+
+  # Extract p-value
+  p_value <- perm_test$p.value
+
+  # Compute summary statistics
+  stats <- aggregate(predicted ~ quantile, data = pred_df,
+                     FUN = function(x) c(mean = mean(x, na.rm=T),
+                                         median = median(x, na.rm=T),
+                                         min = min(x, na.rm=T),
+                                         max = max(x, na.rm=T),
+                                         Q25 = unname(quantile(x, 0.25, na.rm = TRUE)),
+                                         Q75 = unname(quantile(x, 0.75, na.rm = TRUE)),
+                                         sd = sd(x, na.rm=T)))
+
+  # Convert to data frame
+  stats_df <- as.data.frame(stats)
+  colnames(stats_df) <- c("Quantile", "Predicted_Statistics")
+
+  # Separate the statistics into individual columns
+  stats_df <- cbind(
+    stats_df["Quantile"],
+    as.data.frame(stats_df$Predicted_Statistics)
+  )
+
+  # Add the variable name and p-value as columns
+  stats_df$Variable <- variables[i]
+  stats_df$P_Value <- p_value
+
+  # Rename the columns to be more descriptive
+  colnames(stats_df) <- c("Quantile", "Mean_Predicted", "Median_Predicted", "Min_Predicted", "Max_Predicted",
+                          "Quantile25", "Quantile975", "Std_Error", "Variable", "P_Value")
+
+  return(stats_df)
+})
+
+# Combine the results for all variables into one dataframe
+summary_df <- do.call(rbind, summary_statistics)
+
+# View the final summary dataframe
+summary_df
+
+# # First step for continuous variables
+ggplot(summary_df, aes(x = Quantile, y = Mean_Predicted, color = Variable)) +
+  geom_point() +
+  geom_line(aes(group = Variable)) +
+  labs(
+    title = "Summary of Predicted Probabilities",
+    x = "Quantile",
+    y = "Mean Predicted Probability"
+  ) +
+  theme_minimal()
+
+
+# categorical variables #
+generate_predictions_binary <- function(df, model, variable) {
+  # Create datasets for binary 0 and 1 scenarios
+  df_0 <- df
+  df_0[[variable]] <- 0
+  df_0$Level <- "Baseline"
+  
+  df_1 <- df
+  df_1[[variable]] <- 1
+  df_1$Level <- "Higher Value"
+  
+  # Combine both datasets
+  newdata_combined <- rbind(df_0, df_1)
+  
+  # Generate predictions
+  predicted_values <- predict(model, newdata = newdata_combined, type = "response")
+  
+  # Add predictions to the dataset
+  predicted_df <- cbind(newdata_combined, predicted = predicted_values)
+  
+  return(predicted_df)
+}
+
+variables <- c("vdem_bin", "conflict_cumulative_intensity_22", "capital", "dummyCHN", "dummyIND")  # Replace with your variables
+
+all_predictions <- lapply(variables, function(var) {
+  generate_predictions_binary(dataset, fit, var)
+})
+
+
+
+# Perform the permutation test and compute summary statistics
+summary_statistics <- lapply(seq_along(all_predictions), function(i) {
+  pred_df <- all_predictions[[i]]
+  
+  # Perform permutation test between the two levels
+  perm_test <- permTS(pred_df$predicted ~ pred_df$Level, 
+                      method = "exact.mc", 
+                      control = permControl(nmc = 1000))
+  
+  # Extract p-value
+  p_value <- perm_test$p.value
+  
+  # Compute summary statistics
+  stats <- aggregate(predicted ~ Level, data = pred_df, 
+                     FUN = function(x) c(mean = mean(x, na.rm=T), 
+                                         median = median(x, na.rm=T), 
+                                         min = min(x, na.rm=T), 
+                                         max = max(x, na.rm=T),
+                                         Q25 = unname(quantile(x, 0.25, na.rm = TRUE)), 
+                                         Q75 = unname(quantile(x, 0.75, na.rm = TRUE)), 
+                                         sd = sd(x, na.rm=T)))
+  
+  # Convert to data frame
+  stats_df <- as.data.frame(stats)
+  colnames(stats_df) <- c("Level", "Predicted_Statistics")
+  
+  # Separate the statistics into individual columns
+  stats_df <- cbind(
+    stats_df["Level"],
+    as.data.frame(stats_df$Predicted_Statistics)
+  )
+  
+  # Add the variable name and p-value as columns
+  stats_df$Variable <- variables[i]
+  stats_df$P_Value <- p_value
+  
+  # Rename the columns to be more descriptive
+  colnames(stats_df) <- c("Level", "Mean_Predicted", "Median_Predicted", "Min_Predicted", "Max_Predicted", 
+                          "Quantile25", "Quantile975", "Std_Error", "Variable", "P_Value")
+  
+  return(stats_df)
+})
+
+# Combine the results for all variables into one dataframe
+summary_df_categorical <- do.call(rbind, summary_statistics)
+
+# print(summary_df_categorical)
+
+# merge 2 datasets #
+
+summary_df$Level <- ifelse(summary_df$Quantile == "25th percentile", "Baseline", "Higher Value")
+summary_df$Quantile <- NULL
+
+summary_df <- summary_df[,c(10, 1:9)]
+
+totalDF <- rbind(summary_df, summary_df_categorical)
+
+n <- nrow(dataset)
+totalDF$lowCI <- totalDF$Mean_Predicted - qt(0.975,df=n-1)*totalDF$Std_Error/sqrt(n)
+totalDF$highCI <- totalDF$Mean_Predicted + qt(0.975,df=n-1)*totalDF$Std_Error/sqrt(n)
+
+
+generate_interaction_predictions <- function(model, democracy_var, pollution_var, data, democracy_levels, pollution_quantiles) {
+  
+  # Create empty list to store the modified datasets
+  datasets <- list()
+  
+  # Loop over each combination of democracy and pollution levels
+  for (dem_level in democracy_levels) {
+    for (pollution_q in pollution_quantiles) {
+      # Duplicate the original data
+      temp_data <- data
+      
+      # Set the democracy level
+      temp_data[[democracy_var]] <- dem_level
+      
+      # Set the pollution level based on the specified quantile
+      temp_data[[pollution_var]] <- quantile(data[[pollution_var]], probs = pollution_q, na.rm=T)
+      
+      # Add a descriptive label for this scenario
+      temp_data$Scenario <- paste0("Democracy_", dem_level, "_Pollution_", pollution_q)
+      
+      # Store the modified dataset
+      datasets[[length(datasets) + 1]] <- temp_data
+    }
+  }
+  
+  # Combine all datasets into one
+  newdata_combined <- do.call(rbind, datasets)
+  
+  # Generate predictions
+  predictions <- predict(model, newdata = newdata_combined, type = "response")
+  
+  newdata_combined$predicted <- predictions
+  
+  # Summarize predictions (mean, median, min, max, and sd)
+  summary_stats <- newdata_combined %>%
+    group_by(Scenario) %>%
+    summarise(
+      Mean_Predicted = mean(predicted, na.rm=T),
+      Median_Predicted = median(predicted, na.rm=T),
+      Min_Predicted = min(predicted, na.rm=T),
+      Max_Predicted = max(predicted, na.rm=T),
+      SD_Predicted = sd(predicted, na.rm=T)
+    )
+  
+  return(list(prediction_grid = newdata_combined, summary_stats = summary_stats))
+}
+
+
+# Generate predictions and summary stats
+result <- generate_interaction_predictions(
+  model = fit,
+  democracy_var = "vdem_bin",
+  pollution_var = "pm25VanD20002016",
+  data = dataset,
+  democracy_levels = c(0, 1),  # Assuming 0 = low, 1 = high democracy
+  pollution_quantiles = c(0.25, 0.75)
+)
+
+# Access the prediction grid and summary statistics
+prediction_grid <- result$prediction_grid
+summary_stats <- result$summary_stats
+
+summary_stats$P_Value <- NA
+
+summary_stats$P_Value[summary_stats$Scenario %in% c("Democracy_0_Pollution_0.25", "Democracy_0_Pollution_0.75")] <- permTS(subset(prediction_grid, Scenario %in% c("Democracy_0_Pollution_0.25", "Democracy_0_Pollution_0.75"))$predicted ~
+                      subset(prediction_grid, Scenario %in% c("Democracy_0_Pollution_0.25", "Democracy_0_Pollution_0.75"))$Scenario, 
+                    method = "exact.mc", 
+                    control = permControl(nmc = 1000))$p.value
+
+summary_stats$P_Value[summary_stats$Scenario %in% c("Democracy_1_Pollution_0.25", "Democracy_1_Pollution_0.75")] <- permTS(subset(prediction_grid, Scenario %in% c("Democracy_1_Pollution_0.25", "Democracy_1_Pollution_0.75"))$predicted ~
+                      subset(prediction_grid, Scenario %in% c("Democracy_1_Pollution_0.25", "Democracy_1_Pollution_0.75"))$Scenario, 
+                    method = "exact.mc", 
+                    control = permControl(nmc = 1000))$p.value
+
+# Merge with the rest of the dataset
+
+summary_stats_toMerge <- summary_stats %>% 
+  mutate(Level = Scenario,
+         Quantile25 = NA,
+         Quantile975 = NA,
+         Std_Error = SD_Predicted,
+         Variable = Scenario,
+         lowCI = Mean_Predicted - qt(0.975,df=n-1)*SD_Predicted/sqrt(n),
+         highCI = Mean_Predicted + qt(0.975,df=n-1)*SD_Predicted/sqrt(n),
+         Variable_Level = Scenario) %>% 
+  select(colnames(totalDF))
+
+final_df <- rbind(totalDF, summary_stats_toMerge)
+
+final_df <- final_df %>% rename(Scenario = Level)
+
+final_df$Scenario <- c("Low Income", "High Income", "Low Corruption", "High Corruption",
+                       "Low Pollution", "High Pollution", "Low Population", "High Population",
+                       "Not a Democracy", "Democracy", "Not at War", "At War",
+                       "Not a Capital", "Capital", "Not China", "China",
+                       "Not India", "India", "Low Pollution * Non Democracy", "High Pollution * Non Democracy",
+                       "Low Pollution * Democracy", "High Pollution * Democracy"
+                       )
+
+
+final_df2 <- final_df %>%
+  mutate(
+    Variable = case_when(
+      grepl("Income", Scenario) ~ "Income",
+      grepl("Corruption", Scenario) ~ "Corruption",
+      grepl("^Low Pollution$", Scenario) | grepl("^High Pollution$", Scenario) ~ "Pollution",
+      grepl("Pollution \\* Democracy", Scenario) ~ "Pollution in\n Democracies",
+      grepl("Pollution \\* Non Democracy", Scenario) ~ "Pollution in\nNon-Democracies",
+      grepl("Population", Scenario) ~ "Population",
+      grepl("Democracy", Scenario) ~ "Democracy",
+      grepl("War", Scenario) ~ "War",
+      grepl("Capital", Scenario) ~ "Capital",
+      grepl("China", Scenario) ~ "China",
+      grepl("India", Scenario) ~ "India"
+    ),
+    Level = case_when(
+      grepl("Low", Scenario) ~ "Low",
+      grepl("High", Scenario) ~ "High",
+      # grepl("Non", Scenario) ~ "Non",
+      # grepl("Not", Scenario) ~ "Not",
+      TRUE ~ sub("", "", Scenario) # For Democracy, War, Capital, China, India
+    )
+  )
+
+# Arrange by the new variables
+final_df2 <- final_df2 %>%
+  arrange(Variable, Level)
+
+# Create a grouping variable
+final_df3 <- final_df2 %>%
+    mutate(group = case_when(
+        Variable %in% c("Population", "War", "Capital", "China", "India", "Corruption") ~ "Control Variables",
+        TRUE ~ "Key Variables"
+    ))
+
+# Desired order of terms
+term_order <- c("Income",
+                "War",
+                "Democracy",
+                "Corruption",
+                "Pollution in\nNon-Democracies",
+                "Capital",
+                "Pollution in\n Democracies",
+                "Population",
+                "Pollution",
+                    
+                    
+                    "China",
+                    "India"
+                    )
+
+# Recode and set the levels of the term factor
+final_df3 <- final_df3 %>%
+  mutate(Variable = factor(Variable, levels = term_order))
+
+final_df3$sign <- ifelse(final_df3$P_Value < 0.05, "yes", "no")
+
+
+})
+
+
+### Execute all combinations of branches ####
+execute_multiverse(mv)
+
+expanded <- multiverse::expand(mv)
+
+coef_dataExpanded <- expanded %>%
+  mutate(final_df3 = purrr::map(.results, "final_df3"))
+
+coef_dataModels <- coef_dataExpanded %>% unnest(cols = c(final_df3))
+
+p1 <- ggplot(subset(coef_dataModels, group == "Key Variables" & dataset_choice == "nonOECDFUA_adjusted_rdy" & monitorType == "everything_noEmbassy"), aes(y = Level, x = Mean_Predicted)) +
+  geom_point(size = 2) +
+  geom_linerange(aes(xmin = lowCI, xmax = highCI, group = Scenario, alpha = sign), linewidth = 1.5) +
+  facet_wrap(~ Variable, scales = "free_y", nrow = 6, strip.position = "left") +
+  labs(x = "Mean Predicted Value", y = "", title = "Key Variables") +
+  theme_minimal()+
+  scale_alpha_manual(values = c(0.2, 1))+
+  theme(
+    strip.placement = "outside",
+    strip.text.y = element_text(angle = 0),
+    axis.text.y = element_text(size = 10),
+    strip.text = element_text(face = "bold"),
+    legend.position = "none"
+  )
+p1
+
+p2 <- ggplot(subset(coef_dataModels, group == "Control Variables" & dataset_choice == "nonOECDFUA_adjusted_rdy" & monitorType == "everything_noEmbassy"), aes(y = Level, x = Mean_Predicted)) +
+  geom_point(size = 2) +
+  geom_linerange(aes(xmin = lowCI, xmax = highCI, group = Scenario, alpha = sign), linewidth = 1.5) +
+  facet_wrap(~ Variable, scales = "free_y", nrow = 6, strip.position = "left") +
+  labs(x = "Mean Predicted Value", y = "", title = "Control Variables") +
+  theme_minimal() +
+  scale_alpha_manual(values = c(1, 0.2))+
+  theme(
+    strip.placement = "outside",
+    strip.text.y = element_text(angle = 0),
+    axis.text.y = element_text(size = 10),
+    strip.text = element_text(face = "bold"),
+    legend.position = "none"
+  )
+p2
+
+# library(patchwork)
+
+arranged_plots <- p1 + p2
+
+arranged_plots
+
+# Save the arranged plots as a PNG
+ggsave("plotsMain/Figure4_sameTest.png", arranged_plots, width = 11, height = 10)
+
+##### test everything at once ####
+
+create_plot <- function(data, group_name, title) {
+  # Convert sign to factor if it's not already
+  data$sign <- factor(data$sign, levels = c("no", "yes"))
+  
+  
+  p <- ggplot(data, aes(y = Level, x = Mean_Predicted)) +
+    geom_point(size = 2) +
+    geom_linerange(aes(xmin = lowCI, xmax = highCI, group = Scenario, 
+                       alpha = if ("sign" %in% names(data)) sign else NULL), 
+                   linewidth = 1.5) +
+    facet_wrap(~ Variable, scales = "free_y", nrow = 6, strip.position = "left") +
+    labs(x = "Mean Predicted Value", y = "", title = title) +
+    theme_minimal() +
+    theme(
+      strip.placement = "outside",
+      strip.text.y = element_text(angle = 0),
+      axis.text.y = element_text(size = 10),
+      strip.text = element_text(face = "bold"),
+      legend.position = "none"
+    )+
+    scale_alpha_manual(values = c("no" = 0.2, "yes" = 1))
+  
+  return(p)
+}
+
+# Get unique combinations
+dataset_choices <- unique(coef_dataModels$dataset_choice)
+monitor_types <- unique(coef_dataModels$monitorType)
+
+
+
+# List to store all plots
+all_plots <- list()
+
+# Loop through combinations
+for (mt in monitor_types) {
+  for (dc in dataset_choices) {
+    # Subset data
+    subset_data <- subset(coef_dataModels, dataset_choice == dc & monitorType == mt)
+    
+    # Create Key Variables plot
+    p1 <- create_plot(subset(subset_data, group == "Key Variables"), 
+                      "Key Variables", 
+                      paste("Key Variables \n-", dc, "-", mt))
+    
+    # Create Control Variables plot
+    p2 <- create_plot(subset(subset_data, group == "Control Variables"), 
+                      "Control Variables", 
+                      paste("Control Variables \n-", dc, "-", mt))
+    
+    # Combine plots and add to list
+    all_plots[[paste(dc, mt, sep = "_")]] <- p1 + p2
+  }
+}
+
+# Combine all plots into one big plot
+final_plot <- wrap_plots(all_plots, ncol = 2)  # Adjust ncol as needed
+
+ggsave(plot = final_plot, filename = paste('plots/supplementaryFigure1MarginalMeansRobustFull.png', sep = ""),
+       dpi=600, width = 36, height = 24, units='cm')
+
+# List to store all plots
+all_plots <- list()
+
+create_plot <- function(data, group_name) {
+  # Convert sign to factor if it's not already
+  data$sign <- factor(data$sign, levels = c("no", "yes"))
+  
+  
+  p <- ggplot(data, aes(y = Level, x = Mean_Predicted)) +
+    geom_point(size = 2) +
+    geom_linerange(aes(xmin = lowCI, xmax = highCI, group = Scenario, 
+                       alpha = if ("sign" %in% names(data)) sign else NULL), 
+                   linewidth = 1.5) +
+    facet_wrap(~ Variable, scales = "free_y", nrow = 6) +
+    labs(x = "Mean Predicted Value", y = "") +
+    theme_minimal() +
+    theme(
+      strip.placement = "outside",
+      strip.text.y = element_text(angle = 0),
+      axis.text.y = element_text(size = 10),
+      strip.text = element_text(face = "bold"),
+      strip.background = element_blank(),
+      strip.text.x = element_blank(),
+      legend.position = "none"
+    )+
+    scale_alpha_manual(values = c("no" = 0.2, "yes" = 1))
+  
+  return(p)
+}
+
+# Loop through combinations
+for (mt in monitor_types) {
+  for (dc in dataset_choices) {
+    # Subset data
+    subset_data <- subset(coef_dataModels, dataset_choice == dc & monitorType == mt)
+    
+    # Create Key Variables plot
+p1 <- create_plot(subset(subset_data, group == "Key Variables"), 
+                      "Key Variables")
+    
+    # Create Control Variables plot
+    p2 <- create_plot(subset(subset_data, group == "Control Variables"), 
+                      "Control Variables")
+    # Combine plots and add to list
+    all_plots[[paste(dc, mt, sep = "_")]] <- p1 + p2
+  }
+}
+
+# Combine all plots into one big plot
+final_plot <- wrap_plots(all_plots, ncol = 2, byrow = F)  # Adjust ncol as needed
+
+# Display the final plot
+# final_plot
+
+ggsave(plot = final_plot, filename = paste('plots/supplementaryFigure1MarginalMeansRobustClean.png', sep = ""),
+       dpi=600, width = 36, height = 24, units='cm')
+
+
+
+```
+
+## Figure 5 clean democracy pollution interaction
+
+```{r Figure 5}
+
+set.seed(321)
+
+library(tidyverse)
+
+"%ni%" = Negate("%in%")
+
+FUA_data <- read.csv("outputData/FUA_nsf_merged_monitorsOpenAQWAQI.csv")
+
+FUA_gridded <- read.csv("outputData/FUA_nsf_monitors_mergedGrid.csv")
+FUA_data <- merge(FUA_data, FUA_gridded, by = "ID_HDC_G0")
+
+nonOECDFUA <- subset(FUA_data, oecd != 'OECD')
+nonOECDFUA <- subset(nonOECDFUA, INCM_CMI %ni% c('HIC', 'Other') & !is.na(INCM_CMI)) # remove high income countries and NA
+nonOECDFUA <- subset(nonOECDFUA, !is.na(vdem_bin)) # here I subset the countries that are not in the vdem dataset
+# nonOECDFUA_woINDCHN <- subset(nonOECDFUA, CTR_MN_NM %ni% c('India', 'China')) # here I subset india and china
+
+nonOECDFUA$vdem_bin <- ifelse(nonOECDFUA$vdem_bin == "non-democracy", "0non-democracy",
+                                       ifelse(nonOECDFUA$vdem_bin == "democracy", "1democracy", NA))
+
+nonOECDFUA <- subset(nonOECDFUA, GDP15_SM != 0) # here I subset the countries that are not in the vdem dataset
+
+nonOECDFUA$GDP15_SMpc <- nonOECDFUA$GDP15_SM/nonOECDFUA$P15
+
+nonOECDFUA$isMonitor <- as.factor(ifelse((nonOECDFUA$numberMonitor - nonOECDFUA$numberUSEmbassyMonitors) > 0, 1, 0))
+
+# Try with a dummy IND and CHN
+nonOECDFUA$dummyCHN <- as.factor(ifelse(nonOECDFUA$CTR_MN_NM == "China", 1, 0))
+nonOECDFUA$dummyIND <- as.factor(ifelse(nonOECDFUA$CTR_MN_NM == "India", 1, 0))
+
+# Below we sub-sample IND and CHN because they make up the whole dataset otherwise
+# Step 1: Identify the number of rows of the third most present label
+label_counts <- nonOECDFUA %>%
+  count(CTR_MN_NM) %>%
+  arrange(desc(n))
+
+# Number of rows to sample for "India" and "China"
+target_rows <- label_counts$n[3]
+
+# Subsample for "India" and "China"
+# Step 2: Adjust the rows for "India"
+df_india_adjusted <- nonOECDFUA %>%
+  filter(CTR_MN_NM == "India") %>%
+  sample_n(min(n(), target_rows))
+
+# Step 2: Adjust the rows for "China"
+df_china_adjusted <- nonOECDFUA %>%
+  filter(CTR_MN_NM == "China") %>%
+  sample_n(min(n(), target_rows))
+
+# Combine adjusted "India" and "China" with other labels
+nonOECDFUA_adjusted <- nonOECDFUA %>%
+  filter(!CTR_MN_NM %in% c("India", "China")) %>%
+  bind_rows(df_india_adjusted, df_china_adjusted)
+
+fit <- glm(formula = isMonitor
+                            ~ log(GDP15_SMpc+1) + pm25VanD20002016 * vdem_bin +
+                    conflict_cumulative_intensity_22 +
+                    CPI_2012_2022 +
+                    capital +
+                    log(P15)
+                    + dummyCHN + dummyIND
+                  , binomial(link = "logit"), data = nonOECDFUA_adjusted)
+
+# Test with the Poisson Regression, to compare "goodness of fit"
+model <- glm(formula = numberMonitors 
+~ log(GDP15_SMpc+1) + pm25VanD20002016 * vdem_bin +
+ conflict_cumulative_intensity_22 +
+ CPI_2012_2022 +
+ log(P15) +
+  capital
+  +  dummyIND +
+  +  dummyCHN
+  ,
+data = nonOECDFUA_adjusted, family = poisson())
+
+AIC(model) # 7286.738
+
+prediction_grid <- expand.grid(
+  GDP15_SMpc = mean(nonOECDFUA_adjusted$GDP15_SMpc, na.rm = TRUE), # Using median or mean as appropriate
+  vdem_bin = c("1democracy", "0non-democracy"), # Both categories
+  pm25VanD20002016 = seq(min(nonOECDFUA_adjusted$pm25VanD20002016, na.rm = TRUE), max(nonOECDFUA_adjusted$pm25VanD20002016, na.rm = TRUE), length.out = 100),
+  conflict_cumulative_intensity_22 = "nowar",
+  CPI_2012_2022 = mean(nonOECDFUA_adjusted$CPI_2012_2022, na.rm = TRUE),
+  P15 = mean(nonOECDFUA_adjusted$P15, na.rm = TRUE),
+  capital = 1,
+  dummyIND = 0,
+  dummyCHN = 0
+)
+
+prediction_grid$vdem_bin <- as.factor(prediction_grid$vdem_bin)
+prediction_grid$dummyIND <- as.factor(prediction_grid$dummyIND)
+prediction_grid$dummyCHN <- as.factor(prediction_grid$dummyCHN)
+
+# Generate predictions (here counts or probability depending if logit or poisson)
+prediction_with_se <- predict(fit, newdata = prediction_grid, type = "response", se.fit = TRUE)
+
+prediction_grid$prediction <- prediction_with_se[["fit"]]
+prediction_grid$se <- prediction_with_se[["se.fit"]]
+
+# Calculate confidence intervals
+prediction_grid$lower <- prediction_grid$prediction - 1.96 * prediction_grid$se
+prediction_grid$upper <- prediction_grid$prediction + 1.96 * prediction_grid$se
+
+summaryModel <- summary(fit)$coefficients
+
+p <- prediction_grid %>% ggplot(aes(x = pm25VanD20002016, y = prediction)) +
+  geom_line(aes(color = vdem_bin)) +
+  geom_histogram(data = nonOECDFUA_adjusted, aes(y = after_stat(count)/1000), bins = 30, fill = "grey70", alpha = 0.4, position = "identity") +
+  scale_color_manual(values = c("#9fcbee", "#d8031c"), guide = "none") +
+  geom_abline(slope = 0, intercept = 1, linewidth = 0.4, linetype = "dashed")+
+  geom_ribbon(aes(color = vdem_bin, ymin = lower, ymax = upper, fill = vdem_bin), alpha = 0.2, linewidth = 0.2) +
+  scale_fill_manual(values = c("#9fcbee", "#d8031c"),
+                    labels = c("Cities in\nDemocracies", "Cities in\nNon-Democracies")) +
+  labs(x = expression(paste("Pollution level 2000-2016 (PM2.5 -", italic(" µg/m3)")))
+                      , y = "Predicted Probability of AQM", fill = "") +
+  scale_y_continuous(
+    sec.axis = sec_axis(~.*1000, name = "Number of cities")
+  ) +
+  theme_minimal()+
+    theme(
+    strip.background = element_blank(),
+    strip.text.x = element_blank()
+    # axis.text.x = element_text(size=7)
+  )
+
+p
+
+ggsave(plot = p, filename = paste("plotsMain/figure5Main.png", sep = ""),
+       dpi=600, width = 14, height = 8, units='cm')
+
+```
+
+
+## Figure 6 robustness of Figure 5 + supplementary
+
+<!-- # Multiverse Analysis / Consistency Check when using logit and poisson + different data subsets -->
+
+```{r Figure 6 & Supplementary Figure 4/ multiverse 2 with ref and air sensors}
+# multivariate analysis
+
+library(multiverse)
+library(tidyverse)
+library(pscl) # for poisson regression
+library(broom)
+
+set.seed(321)
+
+"%ni%" = Negate("%in%")
+
+FUA_data <- read.csv("outputData/FUA_nsf_merged_monitorsOpenAQWAQI.csv")
+
+FUA_gridded <- read.csv("outputData/FUA_nsf_monitors_mergedGrid.csv")
+FUA_data <- merge(FUA_data, FUA_gridded, by = "ID_HDC_G0")
+
+nonOECDFUA <- subset(FUA_data, oecd != 'OECD')
+nonOECDFUA <- subset(nonOECDFUA, INCM_CMI %ni% c('HIC', 'Other') & !is.na(INCM_CMI)) # remove high income countries and NA
+nonOECDFUA <- subset(nonOECDFUA, !is.na(vdem_bin)) # here I subset the countries that are not in the vdem dataset
+
+nonOECDFUA <- subset(nonOECDFUA, log(GDP15_SM+1) != 0) # here I subset the countries that are not in the vdem dataset
+nonOECDFUA$GDP15_SMpc <- nonOECDFUA$GDP15_SM/nonOECDFUA$P15
+
+nonOECDFUA$vdem_bin <- ifelse(nonOECDFUA$vdem_bin == "non-democracy", "0non-democracy",
+                                       ifelse(nonOECDFUA$vdem_bin == "democracy", "1democracy", NA))
+
+# Try with a dummy IND and CHN
+nonOECDFUA$dummyCHN <- as.factor(ifelse(nonOECDFUA$CTR_MN_NM == "China", 1, 0))
+nonOECDFUA$dummyIND <- as.factor(ifelse(nonOECDFUA$CTR_MN_NM == "India", 1, 0))
+
+# Below we sub-sample IND and CHN because they make up the whole dataset otherwise
+# Step 1: Identify the number of rows of the third most present label
+label_counts <- nonOECDFUA %>%
+  count(CTR_MN_NM) %>%
+  arrange(desc(n))
+
+# Number of rows to sample for "India" and "China"
+target_rows <- label_counts$n[3]
+
+# Subsample for "India" and "China"
+# Step 2: Adjust the rows for "India"
+df_india_adjusted <- nonOECDFUA %>%
+  filter(CTR_MN_NM == "India") %>%
+  sample_n(min(n(), target_rows))
+
+# Step 2: Adjust the rows for "China"
+df_china_adjusted <- nonOECDFUA %>%
+  filter(CTR_MN_NM == "China") %>%
+  sample_n(min(n(), target_rows))
+
+# Combine adjusted "India" and "China" with other labels
+nonOECDFUA_adjusted <- nonOECDFUA %>%
+  filter(!CTR_MN_NM %in% c("India", "China")) %>%
+  bind_rows(df_india_adjusted, df_china_adjusted)
+
+################
+mv <- multiverse()
+
+# Branching on dataset
+inside(mv, {
+  dataset <- branch(dataset_choice,
+             data1 = nonOECDFUA,
+             data2 = nonOECDFUA_adjusted)
+}
+       )
+
+extract_variables(mv, dataset)
+
+# Branching on model type
+inside(mv, {
+  dataset$numberMonitors <- branch(monitorsType,
+                                   "everything" ~ dataset$numberMonitors,
+                                   "everything_noEmbassy" ~ dataset$numberMonitors - dataset$numberUSEmbassyMonitors,
+                                   "ref_embassy" ~ dataset$numberRefMonitor + dataset$numberUSEmbassyMonitors,
+                                   "ref_only" ~ dataset$numberRefMonitors,
+                                   "airSensors_only" ~ dataset$numberSensMonitors
+                                   )
+  
+  dataset$pm25Data <- branch(pollutionDataset,
+                                "OECDsource" ~ dataset$E_CPM2_T10,
+                                "vanD20002016" ~ dataset$pm25VanD20002016)
+  
+  dataset$isMonitor <- as.factor(ifelse(dataset$numberMonitors>0, 1, 0))
+  
+  fit <- branch(model,
+                "logit" ~ glm(formula = isMonitor
+                              ~ log(GDP15_SMpc+1) +  pm25Data * vdem_bin +
+                      conflict_cumulative_intensity_22 +
+                      CPI_2012_2022 +
+                      capital +
+                      log(P15)
+                      + dummyCHN + dummyIND
+                    , binomial(link = "logit"), data = dataset),
+                "poisson" ~ glm(formula = numberMonitors 
+                                     ~ log(GDP15_SMpc+1) + pm25Data * vdem_bin +
+                                       conflict_cumulative_intensity_22 +
+                                       CPI_2012_2022 +
+                                       capital +
+                                       log(P15)
+                                       + dummyIND + dummyCHN
+                                     ,
+                                     data = dataset, family = poisson()))
+  }
+)
+
+inside(mv, {
+  # 
+  prediction_grid <- expand.grid(
+    GDP15_SMpc = mean(dataset$GDP15_SMpc, na.rm = TRUE), # Using median or mean as appropriate
+    vdem_bin = c("1democracy", "0non-democracy"), # Both categories
+    pm25Data = seq(min(dataset$pm25Data, na.rm = TRUE), max(dataset$pm25Data, na.rm = TRUE), length.out = 100),
+    conflict_cumulative_intensity_22 = "nowar",
+    CPI_2012_2022 = mean(dataset$CPI_2012_2022, na.rm = TRUE),
+    P15 = mean(dataset$P15, na.rm = TRUE),
+    capital = 1,
+    dummyIND = 0,
+    dummyCHN = 0
+  )
+  
+  prediction_grid$vdem_bin <- as.factor(prediction_grid$vdem_bin)
+  prediction_grid$dummyIND <- as.factor(prediction_grid$dummyIND)
+  prediction_grid$dummyCHN <- as.factor(prediction_grid$dummyCHN)
+
+  # Generate predictions (here counts or probability depending if logit or poisson)
+  prediction_with_se <- predict(fit, newdata = prediction_grid, type = "response", se.fit = TRUE)
+  
+  prediction_grid$prediction <- prediction_with_se[["fit"]]
+  prediction_grid$se <- prediction_with_se[["se.fit"]]
+  
+  # Calculate confidence intervals
+  prediction_grid$lower <- prediction_grid$prediction - 1.96 * prediction_grid$se
+  prediction_grid$upper <- prediction_grid$prediction + 1.96 * prediction_grid$se
+  
+  summaryModel <- summary(fit)$coefficients
+})
+
+
+# Execute all combinations of branches
+execute_multiverse(mv)
+
+expanded <- multiverse::expand(mv)
+
+predictionGridExpanded <- expanded %>%
+  mutate(prediction_grid = purrr::map(.results, "prediction_grid"))
+
+gridPredictionModels <- predictionGridExpanded %>% unnest(cols = c(prediction_grid))
+
+# Assuming you have the `gridPredictionModels` dataset already loaded
+
+# Split the data
+logitModels <- gridPredictionModels %>%
+  filter(model == "logit") # Adjust this filter based on your actual data structure
+poissonModels <- gridPredictionModels %>%
+  filter(model == "poisson") # Adjust this filter based on your actual data structure
+
+# Plot for the logit model
+p1 <- logitModels %>%
+  ggplot(aes(x = pm25Data, y = prediction, color = vdem_bin)) +
+  geom_line() +
+  scale_color_manual(values = c("#9fcbee", "#d8031c")) +
+  geom_abline(slope = 0, intercept = 1) +
+  geom_ribbon(aes(ymin = lower, ymax = upper, fill = vdem_bin), alpha = 0.2, linewidth = 0.2) +
+  scale_fill_manual(values = c("#9fcbee", "#d8031c"),
+                    labels = c("Democracies", "Non-Democracies")) +
+  labs(x = expression(paste("Pollution level 2000-2016 (PM2.5 -", italic(" µg/m3)"))), y = "Predicted Probability of AQM", fill = "Democratic Setting") +
+  theme_minimal() +
+  facet_wrap(~ model + dataset_choice + pollutionDataset + monitorsType, scales = "free_y", ncol = 5, strip.position = "top") +
+  ylim(min(logitModels$lower-0.1), max(logitModels$upper+0.1))
+
+ggsave(plot = p1, filename = paste('plots/labelMultiverse2_logit.png', sep = ""),
+       dpi=600, width = 25, height = 20, units='cm')
+
+# Plot for the poisson model
+p2 <- poissonModels %>%
+  ggplot(aes(x = pm25Data, y = prediction, color = vdem_bin)) +
+  geom_line() +
+  scale_color_manual(values = c("#9fcbee", "#d8031c")) +
+  geom_abline(slope = 0, intercept = 1) +
+  geom_ribbon(aes(ymin = lower, ymax = upper, fill = vdem_bin), alpha = 0.2, linewidth = 0.2) +
+  scale_fill_manual(values = c("#9fcbee", "#d8031c")) +
+  labs(x = "PM2.5", y = "Predicted Number of Monitors", fill = "Democratic Setting") +
+  theme_minimal() +
+  facet_wrap(~ model + dataset_choice + pollutionDataset + monitorsType, scales = "free_y", ncol = 5, strip.position = "top")
+
+ggsave(plot = p2, filename = paste('plots/labelMultiverse2_poisson.png', sep = ""),
+       dpi=600, width = 25, height = 20, units='cm')
+
+
+# Plot for the logit model
+p1 <- logitModels %>%
+  ggplot(aes(x = pm25Data, y = prediction, color = vdem_bin)) +
+  geom_line() +
+  scale_color_manual(values = c("#9fcbee", "#d8031c")) +
+  geom_abline(slope = 0, intercept = 1) +
+  geom_ribbon(aes(ymin = lower, ymax = upper, fill = vdem_bin), alpha = 0.2, linewidth = 0.2) +
+  scale_fill_manual(values = c("#9fcbee", "#d8031c"),
+                    labels = c("Democracies", "Non-Democracies")) +
+  labs(x = expression(paste("Pollution level 2000-2016 (PM2.5 -", italic(" µg/m3)"))), y = "Predicted Probability of AQM", fill = "Democratic Setting") +
+  theme_minimal() +
+  facet_wrap(~ model + dataset_choice + pollutionDataset + monitorsType, scales = "free_y", ncol = 5, strip.position = "top") +
+  ylim(min(logitModels$lower-0.1), max(logitModels$upper+0.1)) +
+  theme(
+    strip.background = element_blank(),
+    strip.text.x = element_blank(),
+    axis.text.x = element_text(size=7)
+  )
+
+ggsave(plot = p1, filename = paste('plots/labelMultiverse2_logit_noLabel.png', sep = ""),
+       dpi=600, width = 25, height = 20, units='cm')
+
+# Plot for the poisson model
+p2 <- poissonModels %>%
+  ggplot(aes(x = pm25Data, y = prediction, color = vdem_bin)) +
+  geom_line() +
+  scale_color_manual(values = c("#9fcbee", "#d8031c")) +
+  geom_abline(slope = 0, intercept = 1) +
+  geom_ribbon(aes(ymin = lower, ymax = upper, fill = vdem_bin), alpha = 0.2, linewidth = 0.2) +
+  scale_fill_manual(values = c("#9fcbee", "#d8031c"),
+                    labels = c("Democracies", "Non-Democracies")) +
+  labs(x = expression(paste("Pollution level 2000-2016 (PM2.5 -", italic(" µg/m3)"))), y = "Predicted Number of Monitors", fill = "Democratic Setting") +
+  theme_minimal() +
+  facet_wrap(~ model + dataset_choice + pollutionDataset + monitorsType, scales = "free_y", ncol = 5, strip.position = "top")+
+  theme(
+    strip.background = element_blank(),
+    strip.text.x = element_blank(),
+    axis.text.x = element_text(size=7)
+  )
+
+ggsave(plot = p2, filename = paste('plots/labelMultiverse2_poisson_noLabel.png', sep = ""),
+       dpi=600, width = 25, height = 20, units='cm')
+
+
+
+
+summaryModels <- expanded %>%
+  mutate(summaryModel = purrr::map(.results, "summaryModel"))
+
+# glimpse(summaryModels$summaryModel)
+
+# Extract the specific value from each summaryModel
+summaryModelsPValuePollution <- summaryModels %>%
+  mutate(estimate = purrr::map(summaryModel, ~ .x["pm25Data:vdem_bin1democracy", "Estimate"]),
+         p_value = purrr::map(summaryModel, ~ .x["pm25Data:vdem_bin1democracy", "Pr(>|z|)"]))
+
+# Unnest the list of specific values into a column
+summaryModelsfinal <- summaryModelsPValuePollution %>%
+  unnest(cols = c(estimate, p_value))
+
+mergedSummaries <- summaryModelsfinal %>% select(.universe, estimate, p_value)
+
+full_df <- merge(gridPredictionModels, mergedSummaries, by = ".universe")
+
+p_value_to_symbol <- function(p) {
+  if (p <= 0.001) {
+    return("***")
+  } else if (p <= 0.01) {
+    return("**")
+  } else if (p <= 0.05) {
+    return("*")
+  } else {
+    return("ns")
+  }
+}
+
+full_df$symbol <- sapply(full_df$p_value, p_value_to_symbol)
+
+symbols
+
+logitModels <- full_df %>%
+  filter(model == "logit") # Adjust this filter based on your actual data structure
+poissonModels <- full_df %>%
+  filter(model == "poisson") # Adjust this filter based on your actual data structure
+
+p1 <- logitModels %>%
+  ggplot(aes(x = pm25Data, y = prediction, color = vdem_bin)) +
+  geom_line() +
+  scale_color_manual(values = c("#9fcbee", "#d8031c"), guide = "none") +
+  geom_abline(slope = 0, intercept = 1, linewidth = 0.4, linetype = "dashed")+
+  geom_ribbon(aes(ymin = lower, ymax = upper, fill = vdem_bin), alpha = 0.2, linewidth = 0.2) +
+  scale_fill_manual(values = c("#9fcbee", "#d8031c"),
+                    labels = c("Cities in\nDemocracies", "Cities in\nNon-Democracies")) +
+  geom_text(data = logitModels, aes(x = Inf, y = Inf, label = symbol),
+            hjust = 2, vjust = 1.1, size = 3, color = "black", inherit.aes = FALSE) +
+  geom_text(data = logitModels, aes(x = Inf, y = Inf, label = round(estimate, 2)),
+            hjust = 2.5, vjust = 1.2, size = 3, color = "black", inherit.aes = FALSE) +
+  labs(x = expression(paste("Pollution level 2000-2016 (PM2.5 -", italic(" µg/m3)"))),
+       y = "Predicted Probability of AQM", fill = "") +
+  theme_minimal() +
+  facet_wrap(~ model + dataset_choice + pollutionDataset + monitorsType, scales = "free_y", ncol = 5, strip.position = "top") +
+  ylim(min(logitModels$lower-0.1), max(logitModels$upper+0.1)) +
+  theme(
+    strip.background = element_blank(),
+    strip.text.x = element_blank(),
+    axis.text.x = element_text(size=7)
+  )
+
+ggsave(plot = p1, filename = paste('plots/figure6labelMultiverse2_logit_noLabel_sign.png', sep = ""),
+       dpi=600, width = 25, height = 20, units='cm')
+
+
+p2 <- poissonModels %>%
+  ggplot(aes(x = pm25Data, y = prediction, color = vdem_bin)) +
+  geom_line() +
+  scale_color_manual(values = c("#9fcbee", "#d8031c"), guide = "none") +
+  geom_abline(slope = 0, intercept = 1, linewidth = 0.4, linetype = "dashed")+
+  geom_ribbon(aes(ymin = lower, ymax = upper, fill = vdem_bin), alpha = 0.2, linewidth = 0.2) +
+  scale_fill_manual(values = c("#9fcbee", "#d8031c"),
+                    labels = c("Cities in\nDemocracies", "Cities in\nNon-Democracies")) +
+  geom_text(data = poissonModels, aes(x = Inf, y = Inf, label = symbol),
+            hjust = 2, vjust = 1.1, size = 3, color = "black", inherit.aes = FALSE) +
+  geom_text(data = poissonModels, aes(x = Inf, y = Inf, label = round(estimate, 2)),
+            hjust = 2.5, vjust = 1.2, size = 3, color = "black", inherit.aes = FALSE) +
+  labs(x = expression(paste("Pollution level 2000-2016 (PM2.5 -", italic(" µg/m3)"))),
+       y = "Predicted Number of Stations", fill = "") +
+  theme_minimal() +
+  facet_wrap(~ model + dataset_choice + pollutionDataset + monitorsType, scales = "free_y", ncol = 5, strip.position = "top") +
+  theme(
+    strip.background = element_blank(),
+    strip.text.x = element_blank(),
+    axis.text.x = element_text(size=7)
+  )
+
+ggsave(plot = p2, filename = paste('plots/supplementaryFigure4labelMultiverse2_poisson_noLabel_sign.png', sep = ""),
+       dpi=600, width = 25, height = 20, units='cm')
+
+
+```
+
+
+#### supplementary only
+
+```{r Supplementary Figure 5 and Supplementary Table 1 / country level robustness check}
+
+set.seed(123)
+
+library(tidyverse)
+
+"%ni%" = Negate("%in%")
+
+FUA_data <- read.csv("outputData/FUA_nsf_merged_monitorsOpenAQWAQI.csv")
+
+FUA_gridded <- read.csv("outputData/FUA_nsf_monitors_mergedGrid.csv")
+FUA_data <- merge(FUA_data, FUA_gridded, by = "ID_HDC_G0")
+
+nonOECDFUA <- subset(FUA_data, oecd != 'OECD')
+nonOECDFUA <- subset(nonOECDFUA, INCM_CMI %ni% c('HIC', 'Other') & !is.na(INCM_CMI)) # remove high income countries and NA
+nonOECDFUA <- subset(nonOECDFUA, !is.na(vdem_bin)) # here I subset the countries that are not in the vdem dataset
+
+nonOECDFUA <- subset(nonOECDFUA, GDP15_SM != 0) # here I subset the countries that have GDP = 0
+
+nonOECDFUA$isMonitor <- as.numeric(ifelse((nonOECDFUA$numberMonitor - nonOECDFUA$numberUSEmbassyMonitors) > 0, 1, 0))
+
+# Try with a dummy IND and CHN
+nonOECDFUA$dummyCHN <- as.numeric(ifelse(nonOECDFUA$CTR_MN_NM == "China", 1, 0))
+nonOECDFUA$dummyIND <- as.numeric(ifelse(nonOECDFUA$CTR_MN_NM == "India", 1, 0))
+
+nonOECDFUA$vdem_bin <- ifelse(nonOECDFUA$vdem_bin == "non-democracy", "0non-democracy",
+                                       ifelse(nonOECDFUA$vdem_bin == "democracy", "1democracy", NA))
+
+
+# let's do the country level analysis with the full dataset
+countryLevel <- nonOECDFUA %>% 
+  group_by(CTR_MN_NM) %>% 
+  summarize(
+    cityNumber = n(),
+    numberMonitors = sum(numberMonitors) - sum(numberUSEmbassyMonitors),
+    population = sum(P15, na.rm=T),
+    income = sum(GDP15_SM, na.rm=T),
+    corruption = first(CPI_2012_2022),
+    conflict = first(conflict_cumulative_intensity_22),
+    democracy = first(vdem_bin),
+    pollution = mean(pm25VanD20002016, na.rm=T),
+    # numberMonitorsAdjusted = sum(numberMonitorsAdjusted, na.rm = T),
+    dummyIND = first(dummyIND),
+    dummyCHN = first(dummyCHN)
+  )
+
+# countryLevel <- subset(countryLevel, dummyIND == 0 & dummyCHN == 0)
+
+countryLevel$GDP15_SMpc <- countryLevel$income/countryLevel$population
+
+model <- glm(formula = numberMonitors 
+~ log(GDP15_SMpc+1) + pollution * democracy +
+ conflict +
+ corruption +
+ log(population)
+  +  dummyIND
+  +  dummyCHN
+  ,
+data = countryLevel, family = poisson())
+
+summary(model)
+
+AIC(model) # 2879
+
+# Calculate R-squared
+deviance <- summary(model)$deviance
+null_deviance <- summary(model)$null.deviance
+rsquared <- 1 - (deviance / null_deviance)
+
+library(broom)
+library(flextable)
+
+# Create a data frame from the model summary
+model_summary <- tidy(model)
+
+# Create a flextable
+ft <- flextable(model_summary)
+
+# Customize the table
+ft <- ft %>%
+  set_header_labels(
+    term = "Variable",
+    estimate = "Estimate",
+    std.error = "Std. Error",
+    statistic = "t value",
+    p.value = "p-value"
+  ) %>%
+  fontsize(size = 11, part = "all") %>%
+  colformat_double(digits = 3) %>%
+  bold(part = "header") %>%
+  add_footer_lines(
+  c(paste("R2 = ", round(rsquared, 3), sep = ""),
+    paste("AIC = ", round(AIC(model), 3), sep = ""),
+    paste("Number of observations = ", nobs(model), sep = ""))
+  ) %>%
+  line_spacing(space = 0.8, part = "body") %>%
+  padding(padding = 2, part = "all") %>% 
+  font(fontname = "Times New Roman", part = "all") %>%
+  autofit()
+
+ft
+# Save the table as a Word document
+save_as_docx(ft, path = "tables/regression_table.docx")
+
+prediction_grid <- expand.grid(
+  GDP15_SMpc = mean(countryLevel$GDP15_SMpc, na.rm = TRUE), # Using median or mean as appropriate
+  democracy = c("1democracy", "0non-democracy"), # Both categories
+  pollution = seq(min(countryLevel$pollution, na.rm = TRUE), max(countryLevel$pollution, na.rm = TRUE), length.out = 100),
+  conflict = "nowar",
+  corruption = mean(countryLevel$corruption, na.rm = TRUE),
+  population = mean(countryLevel$population, na.rm = TRUE)
+  , dummyIND = 0,
+  dummyCHN = 0
+)
+
+prediction_grid$democracy <- as.factor(prediction_grid$democracy)
+
+# Generate predictions (here counts or probability depending if logit or poisson)
+prediction_with_se <- predict(model, newdata = prediction_grid, type = "response", se.fit = TRUE)
+
+prediction_grid$prediction <- prediction_with_se[["fit"]]
+prediction_grid$se <- prediction_with_se[["se.fit"]]
+
+# Calculate confidence intervals
+prediction_grid$lower <- prediction_grid$prediction - 1.96 * prediction_grid$se
+prediction_grid$upper <- prediction_grid$prediction + 1.96 * prediction_grid$se
+
+summaryModel <- summary(model)$coefficients
+
+p <- prediction_grid %>% ggplot(aes(x = pollution, y = prediction, color = democracy)) +
+  geom_line() +
+  scale_color_manual(values = c("#9fcbee", "#d8031c"), guide = "none") +
+  geom_ribbon(aes(ymin = lower, ymax = upper, fill = democracy), alpha = 0.2, linewidth = 0.2) +
+  scale_fill_manual(values = c("#9fcbee", "#d8031c"),
+                    labels = c("Democracies", "Non-Democracies")) +
+  labs(x = expression(paste("Pollution level 2000-2016 (PM2.5 -", italic(" µg/m3)")))
+                      , y = "Predicted Number of Stations", fill = "") +
+  theme_minimal()+
+  theme(
+    strip.background = element_blank(),
+    strip.text.x = element_blank(),
+    axis.text.x = element_text(size=7)
+  )
+
+p
+
+ggsave(plot = p, filename = paste("plots/supplementaryFigure5.png", sep = ""),
+       dpi=600, width = 14, height = 8, units='cm')
+
+```
+
+```{r Supplementary Table 2 Role of US Embassies}
+
+set.seed(123)
+
+library(tidyverse)
+library(perm)
+library(broom)
+library(flextable)
+library(officer)
+
+"%ni%" = Negate("%in%")
+
+FUA_data <- read.csv("outputData/FUA_nsf_merged_monitorsOpenAQWAQI.csv")
+
+FUA_gridded <- read.csv("outputData/FUA_nsf_monitors_mergedGrid.csv")
+FUA_data <- merge(FUA_data, FUA_gridded, by = "ID_HDC_G0")
+
+nonOECDFUA <- subset(FUA_data, oecd != 'OECD')
+nonOECDFUA <- subset(nonOECDFUA, INCM_CMI %ni% c('HIC', 'Other') & !is.na(INCM_CMI)) # remove high income countries and NA
+nonOECDFUA <- subset(nonOECDFUA, !is.na(vdem_bin)) # here I subset the countries that are not in the vdem dataset
+
+nonOECDFUA <- subset(nonOECDFUA, GDP15_SM != 0) # here I subset the countries that are not in the vdem dataset
+
+nonOECDFUA$isMonitor <- as.factor(ifelse((nonOECDFUA$numberMonitor) > 0, 1, 0))
+nonOECDFUA$isNonUSMonitor <- as.factor(ifelse((nonOECDFUA$numberMonitor - nonOECDFUA$numberUSEmbassyMonitors) > 0, 1, 0))
+
+# Try with a dummy IND and CHN
+nonOECDFUA$dummyCHN <- as.factor(ifelse(nonOECDFUA$CTR_MN_NM == "China", 1, 0))
+nonOECDFUA$dummyIND <- as.factor(ifelse(nonOECDFUA$CTR_MN_NM == "India", 1, 0))
+
+nonOECDFUA$vdem_bin <- ifelse(nonOECDFUA$vdem_bin == "non-democracy", "0non-democracy",
+                                       ifelse(nonOECDFUA$vdem_bin == "democracy", "1democracy", NA))
+
+
+# Below we sub-sample IND and CHN because they make up the whole dataset otherwise
+# Step 1: Identify the number of rows of the third most present label
+label_counts <- nonOECDFUA %>%
+  count(CTR_MN_NM) %>%
+  arrange(desc(n))
+
+# Number of rows to sample for "India" and "China"
+target_rows <- label_counts$n[3]
+
+# Subsample for "India" and "China"
+# Step 2: Adjust the rows for "India"
+df_india_adjusted <- nonOECDFUA %>%
+  filter(CTR_MN_NM == "India") %>%
+  sample_n(min(n(), target_rows))
+
+# Step 2: Adjust the rows for "China"
+df_china_adjusted <- nonOECDFUA %>%
+  filter(CTR_MN_NM == "China") %>%
+  sample_n(min(n(), target_rows))
+
+# Combine adjusted "India" and "China" with other labels
+nonOECDFUA_adjusted <- nonOECDFUA %>%
+  filter(!CTR_MN_NM %in% c("India", "China")) %>%
+  bind_rows(df_india_adjusted, df_china_adjusted)
+
+
+# Number of cities with / without monitor: 1365 / 9741
+df <- nonOECDFUA %>%
+  group_by(isMonitor) %>%
+  summarize(nb = n())
+
+# Number of cities with / just US embassy monitor: 13
+nonOECDFUA$isUSMonitor <- as.factor(ifelse((nonOECDFUA$numberUSEmbassyMonitors) > 0, 1, 0))
+nonOECDFUA$isOnlyUSMonitor <- as.factor(ifelse((nonOECDFUA$isMonitor == 1 & ((as.numeric(nonOECDFUA$numberMonitors) - as.numeric(nonOECDFUA$numberUSEmbassyMonitors)) == 0)), 1, 0))
+
+df <- nonOECDFUA %>%
+  group_by(isOnlyUSMonitor) %>%
+  summarize(nb = n())
+
+capitals <- subset(nonOECDFUA, capital == T)
+
+capitals$nbMonitorsNonUS <- capitals$numberMonitors - capitals$numberUSEmbassyMonitors
+
+capitals %>% ggplot(aes(fill = isUSMonitor, x = nbMonitorsNonUS))+
+  geom_histogram(bins = 100)+
+  facet_wrap(~isUSMonitor)
+
+permTS(as.numeric(capitals %>% filter(isUSMonitor == 0) %>% pull(nbMonitorsNonUS) %>% na.omit()), as.numeric(capitals %>% filter(isUSMonitor == 1) %>% pull(nbMonitorsNonUS) %>% na.omit()), method = "exact.mc", control = permControl(nmc = 1000))
+permTS(as.numeric(capitals %>% filter(isUSMonitor == 0) %>% pull(numberRefMonitors) %>% na.omit()), as.numeric(capitals %>% filter(isUSMonitor == 1) %>% pull(numberRefMonitors) %>% na.omit()), method = "exact.mc", control = permControl(nmc = 1000))
+permTS(as.numeric(capitals %>% filter(isUSMonitor == 0) %>% pull(numberSensMonitors) %>% na.omit()), as.numeric(capitals %>% filter(isUSMonitor == 1) %>% pull(numberSensMonitors) %>% na.omit()), method = "exact.mc", control = permControl(nmc = 1000))
+
+capitals$GDP15_SMpc <- capitals$GDP15_SM/capitals$P15
+
+model1 <- glm(formula = nbMonitorsNonUS 
+~ log(GDP15_SMpc+1) + pm25VanD20002016 * vdem_bin +
+ conflict_cumulative_intensity_22 +
+ CPI_2012_2022 +
+ log(P15)
+  + isUSMonitor
+  ,
+data = capitals, family = poisson())
+
+summary(model1)
+
+model2 <- glm(formula = numberRefMonitors 
+~ log(GDP15_SMpc+1) + pm25VanD20002016 * vdem_bin +
+ conflict_cumulative_intensity_22 +
+ CPI_2012_2022 +
+ log(P15)
+  + isUSMonitor
+  ,
+data = capitals, family = poisson())
+
+summary(model2)
+
+model3 <- glm(formula = numberSensMonitors 
+~ log(GDP15_SMpc+1) + pm25VanD20002016 * vdem_bin +
+ conflict_cumulative_intensity_22 +
+ CPI_2012_2022 +
+ log(P15)
+  + isUSMonitor
+  ,
+data = capitals, family = poisson())
+
+summary(model3)
+
+
+extract_coef <- function(model, model_name) {
+  tidy_model <- tidy(model, conf.int = TRUE)
+  tidy_model$model <- model_name
+  tidy_model$formatted <- sprintf("%.3f%s\n(%s)",
+                                  tidy_model$estimate,
+                                  ifelse(tidy_model$p.value < 0.001, "***",
+                                         ifelse(tidy_model$p.value < 0.01, "**",
+                                                ifelse(tidy_model$p.value < 0.05, "*", ""))),
+                                  sprintf("%.3f", tidy_model$std.error))
+  return(tidy_model)
+}
+
+# Extract coefficients from all models
+coef_list <- list(
+  extract_coef(model1, "nbMonitorsNonUS"),
+  extract_coef(model2, "numberRefMonitors"),
+  extract_coef(model3, "numberSensMonitors")
+)
+
+# Combine all coefficients into a single data frame
+all_coefs <- do.call(rbind, coef_list)
+
+# Reshape the data
+wide_coefs <- all_coefs %>%
+  select(term, model, formatted) %>%
+  tidyr::pivot_wider(names_from = model, values_from = formatted)
+
+# Function to extract additional statistics
+extract_stats <- function(model) {
+  aic <- AIC(model)
+  nobs <- nobs(model)
+  r2 <- pscl::pR2(model)["McFadden"]
+  c(AIC = aic, N = nobs, `McFadden R2` = r2)
+}
+
+# Extract additional statistics for each model
+stats1 <- extract_stats(model1)
+stats2 <- extract_stats(model2)
+stats3 <- extract_stats(model3)
+
+# Create a data frame with the additional statistics
+additional_stats <- data.frame(
+  term = c("AIC", "N", "McFadden R2"),
+  nbMonitorsNonUS = c(sprintf("%.3f", stats1["AIC"]), 
+                      sprintf("%.0f", stats1["N"]), 
+                      sprintf("%.3f", stats1["McFadden R2.McFadden"])),
+  numberRefMonitors = c(sprintf("%.3f", stats2["AIC"]), 
+                        sprintf("%.0f", stats2["N"]), 
+                        sprintf("%.3f", stats2["McFadden R2.McFadden"])),
+  numberSensMonitors = c(sprintf("%.3f", stats3["AIC"]), 
+                         sprintf("%.0f", stats3["N"]), 
+                         sprintf("%.3f", stats3["McFadden R2.McFadden"]))
+)
+
+# Combine the coefficient data with the additional statistics
+final_data <- rbind(wide_coefs, additional_stats)
+
+# Create a flextable
+ft <- flextable(final_data) %>%
+  set_header_labels(
+    term = "Variable",
+    nbMonitorsNonUS = "All Non-US Monitors",
+    numberRefMonitors = "Reference Monitors",
+    numberSensMonitors = "Air Sensors"
+  ) %>%
+  theme_booktabs() %>%
+  colformat_double(digits = 3) %>%
+  fontsize(size = 11, part = "all") %>%
+  add_footer_lines(
+    c("Note: * p<0.05; ** p<0.01; *** p<0.001",
+      "Standard errors in parentheses")
+  ) %>%
+  font(fontname = "Times New Roman", part = "all") %>%
+  line_spacing(space = 0.8, part = "body") %>%
+  padding(padding = 2, part = "all") %>% 
+  bold(part = "header") %>%
+  bold(i = ~ term %in% c("isUSMonitor1"), part = "body") %>%
+  autofit()
+
+# Display the table
+ft
+
+# Save the table as a Word document
+save_as_docx(ft, path = "tables/regression_table_USembassies.docx")
+
+```
+
+
+```{r Supplementary Figure 2 / Demo x Pollution x GDP interaction}
+
+set.seed(123)
+
+library(tidyverse)
+
+"%ni%" = Negate("%in%")
+
+FUA_data <- read.csv("outputData/FUA_nsf_merged_monitorsOpenAQWAQI.csv")
+
+FUA_gridded <- read.csv("outputData/FUA_nsf_monitors_mergedGrid.csv")
+FUA_data <- merge(FUA_data, FUA_gridded, by = "ID_HDC_G0")
+
+
+nonOECDFUA <- subset(FUA_data, oecd != 'OECD')
+nonOECDFUA <- subset(nonOECDFUA, INCM_CMI %ni% c('HIC', 'Other') & !is.na(INCM_CMI)) # remove high income countries and NA
+nonOECDFUA <- subset(nonOECDFUA, !is.na(vdem_bin)) # here I subset the countries that are not in the vdem dataset
+
+nonOECDFUA <- subset(nonOECDFUA, GDP15_SM != 0) # here I subset the countries that are not in the vdem dataset
+nonOECDFUA$GDP15_SMpc <- nonOECDFUA$GDP15_SM/nonOECDFUA$P15
+
+nonOECDFUA$isMonitor <- as.factor(ifelse((nonOECDFUA$numberMonitor - nonOECDFUA$numberUSEmbassyMonitors) > 0, 1, 0))
+nonOECDFUA$numberMonitorNonEmbassy <- nonOECDFUA$numberMonitor - nonOECDFUA$numberUSEmbassyMonitors
+
+# Try with a dummy IND and CHN
+nonOECDFUA$dummyCHN <- as.factor(ifelse(nonOECDFUA$CTR_MN_NM == "China", 1, 0))
+nonOECDFUA$dummyIND <- as.factor(ifelse(nonOECDFUA$CTR_MN_NM == "India", 1, 0))
+
+# Below we sub-sample IND and CHN because they make up the whole dataset otherwise
+# Step 1: Identify the number of rows of the third most present label
+label_counts <- nonOECDFUA %>%
+  count(CTR_MN_NM) %>%
+  arrange(desc(n))
+
+# Number of rows to sample for "India" and "China"
+target_rows <- label_counts$n[3]
+
+# Subsample for "India" and "China"
+# Step 2: Adjust the rows for "India"
+df_india_adjusted <- nonOECDFUA %>%
+  filter(CTR_MN_NM == "India") %>%
+  sample_n(min(n(), target_rows))
+
+# Step 2: Adjust the rows for "China"
+df_china_adjusted <- nonOECDFUA %>%
+  filter(CTR_MN_NM == "China") %>%
+  sample_n(min(n(), target_rows))
+
+# Combine adjusted "India" and "China" with other labels
+nonOECDFUA_adjusted <- nonOECDFUA %>%
+  filter(!CTR_MN_NM %in% c("India", "China")) %>%
+  bind_rows(df_india_adjusted, df_china_adjusted)
+
+fit <- glm(formula = isMonitor
+                            ~ log(GDP15_SMpc+1) +  pm25VanD20002016 * vdem_bin +
+             log(GDP15_SMpc+1) :  pm25VanD20002016 +
+                    conflict_cumulative_intensity_22 +
+                    CPI_2012_2022 +
+                    capital +
+                    log(P15)
+                    + dummyCHN + dummyIND
+                  , binomial(link = "logit"), data = nonOECDFUA_adjusted)
+
+prediction_grid <- expand.grid(
+  GDP15_SMpc = quantile(nonOECDFUA_adjusted$GDP15_SMpc, probs = seq(0, 1, length.out = 9), na.rm = TRUE),
+  vdem_bin = c("democracy", "non-democracy"), # Both categories
+  pm25VanD20002016 = seq(min(nonOECDFUA_adjusted$pm25VanD20002016, na.rm = TRUE), max(nonOECDFUA_adjusted$pm25VanD20002016, na.rm = TRUE), length.out = 100),
+  conflict_cumulative_intensity_22 = "nowar",
+  CPI_2012_2022 = mean(nonOECDFUA_adjusted$CPI_2012_2022, na.rm = TRUE),
+  P15 = mean(nonOECDFUA_adjusted$P15, na.rm = TRUE),
+  capital = 1,
+  dummyIND = 0,
+  dummyCHN = 0
+)
+
+prediction_grid$vdem_bin <- as.factor(prediction_grid$vdem_bin)
+prediction_grid$dummyIND <- as.factor(prediction_grid$dummyIND)
+prediction_grid$dummyCHN <- as.factor(prediction_grid$dummyCHN)
+
+# Generate predictions (here counts or probability depending if logit or poisson)
+prediction_with_se <- predict(fit, newdata = prediction_grid, type = "response", se.fit = TRUE)
+
+prediction_grid$prediction <- prediction_with_se[["fit"]]
+prediction_grid$se <- prediction_with_se[["se.fit"]]
+
+# Calculate confidence intervals
+prediction_grid$lower <- prediction_grid$prediction - 1.96 * prediction_grid$se
+prediction_grid$upper <- prediction_grid$prediction + 1.96 * prediction_grid$se
+
+summaryModel <- summary(fit)$coefficients
+
+# Create a named vector for the custom facet labels
+gdp_labels <- setNames(paste("Quantile GDP p.c.", (0:8)/0.08), quantile(nonOECDFUA_adjusted$GDP15_SMpc, probs = seq(0, 1, length.out = 9), na.rm = TRUE))
+
+p <- prediction_grid %>% ggplot(aes(x = pm25VanD20002016, y = prediction, color = vdem_bin)) +
+  geom_line() +
+  scale_color_manual(values = c("#9fcbee", "#d8031c"), guide = "none") +
+  geom_abline(slope = 0, intercept = 1, linewidth = 0.4, linetype = "dashed")+
+  geom_ribbon(aes(ymin = lower, ymax = upper, fill = vdem_bin), alpha = 0.2, linewidth = 0.2) +
+  scale_fill_manual(values = c("#9fcbee", "#d8031c"),
+                    labels = c("Cities in\nDemocracies", "Cities in\nNon-Democracies")) +
+  labs(x = expression(paste("Pollution level 2000-2016 (PM2.5 -", italic(" µg/m3)")))
+                      , y = "Predicted Probability of AQM", fill = "") +
+  theme_minimal()+
+    theme(
+    # strip.background = element_blank(),
+    # strip.text.x = element_blank()
+    # axis.text.x = element_text(size=7)
+  )+facet_wrap(~GDP15_SMpc, labeller = labeller(GDP15_SMpc = gdp_labels))
+
+p
+
+ggsave(plot = p, filename = paste("plots/supplementaryFigure2GDPlogit.png", sep = ""),
+       dpi=600, width = 18, height = 14, units='cm')
+
+
+```
+
+
+
+
+
+
+
+
+```{r Supplementary Figure X / Effect size Bootstrap City Sensitivity}
+
+library(tidyverse)
+
+"%ni%" = Negate("%in%")
+
+dir.create("plotsExtra/subsamplingLogit")
+
+FUA_data <- read.csv("outputData/FUA_nsf_merged_monitorsOpenAQWAQI.csv")
+
+FUA_gridded <- read.csv("outputData/FUA_nsf_monitors_mergedGrid.csv")
+FUA_data <- merge(FUA_data, FUA_gridded, by = "ID_HDC_G0")
+
+nonOECDFUA <- subset(FUA_data, oecd != 'OECD')
+nonOECDFUA <- subset(nonOECDFUA, INCM_CMI %ni% c('HIC', 'Other') & !is.na(INCM_CMI)) # remove high income countries and NA
+nonOECDFUA <- subset(nonOECDFUA, !is.na(vdem_bin)) # here I subset the countries that are not in the vdem dataset
+# nonOECDFUA_woINDCHN <- subset(nonOECDFUA, CTR_MN_NM %ni% c('India', 'China')) # here I subset india and china
+
+nonOECDFUA <- subset(nonOECDFUA, GDP15_SM != 0) # here I subset the countries that are not in the vdem dataset
+nonOECDFUA$GDP15_SMpc <- nonOECDFUA$GDP15_SM/nonOECDFUA$P15
+
+nonOECDFUA$isMonitor <- as.factor(ifelse((nonOECDFUA$numberMonitor - nonOECDFUA$numberUSEmbassyMonitors) > 0, 1, 0))
+
+# Try with a dummy IND and CHN
+nonOECDFUA$dummyCHN <- as.factor(ifelse(nonOECDFUA$CTR_MN_NM == "China", 1, 0))
+nonOECDFUA$dummyIND <- as.factor(ifelse(nonOECDFUA$CTR_MN_NM == "India", 1, 0))
+
+# Below we sub-sample IND and CHN because they make up the whole dataset otherwise
+# Step 1: Identify the number of rows of the third most present label
+label_counts <- nonOECDFUA %>%
+  count(CTR_MN_NM) %>%
+  arrange(desc(n))
+
+# Number of rows to sample for "India" and "China"
+target_rows <- label_counts$n[3]
+
+summary_iteractions <- data.frame(matrix(NA, nrow = 1000, ncol = 3))
+colnames(summary_iteractions) <- c("iteration", "estimate", "pvalue")
+
+nonOECDFUA$vdem_bin <- ifelse(nonOECDFUA$vdem_bin == "non-democracy", "0non-democracy",
+                                       ifelse(nonOECDFUA$vdem_bin == "democracy", "1democracy", NA))
+
+for(i in 1:1000){
+  set.seed(123+i)
+  
+  # Subsample for "India" and "China"
+  # Step 2: Adjust the rows for "India"
+  df_india_adjusted <- nonOECDFUA %>%
+    filter(CTR_MN_NM == "India") %>%
+    sample_n(min(n(), target_rows))
+  
+  # Step 2: Adjust the rows for "China"
+  df_china_adjusted <- nonOECDFUA %>%
+    filter(CTR_MN_NM == "China") %>%
+    sample_n(min(n(), target_rows))
+  
+  # Combine adjusted "India" and "China" with other labels
+  nonOECDFUA_adjusted <- nonOECDFUA %>%
+    filter(!CTR_MN_NM %in% c("India", "China")) %>%
+    bind_rows(df_india_adjusted, df_china_adjusted)
+
+fit <- glm(formula = isMonitor
+                            ~ log(GDP15_SMpc+1) +  pm25VanD20002016 * vdem_bin +
+                    conflict_cumulative_intensity_22 +
+                    CPI_2012_2022 +
+                    capital +
+                    log(P15)
+                    + dummyCHN + dummyIND
+                  , binomial(link = "logit"), data = nonOECDFUA_adjusted)
+
+prediction_grid <- expand.grid(
+  GDP15_SMpc = mean(nonOECDFUA_adjusted$GDP15_SMpc, na.rm = TRUE), # Using median or mean as appropriate
+  vdem_bin = c("1democracy", "0non-democracy"), # Both categories
+  pm25VanD20002016 = seq(min(nonOECDFUA_adjusted$pm25VanD20002016, na.rm = TRUE), max(nonOECDFUA_adjusted$pm25VanD20002016, na.rm = TRUE), length.out = 100),
+  conflict_cumulative_intensity_22 = "nowar",
+  CPI_2012_2022 = mean(nonOECDFUA_adjusted$CPI_2012_2022, na.rm = TRUE),
+  P15 = mean(nonOECDFUA_adjusted$P15, na.rm = TRUE),
+  capital = 1,
+  dummyIND = 0,
+  dummyCHN = 0
+)
+
+prediction_grid$vdem_bin <- as.factor(prediction_grid$vdem_bin)
+prediction_grid$dummyIND <- as.factor(prediction_grid$dummyIND)
+prediction_grid$dummyCHN <- as.factor(prediction_grid$dummyCHN)
+
+# Generate predictions (here counts or probability depending if logit or poisson)
+prediction_with_se <- predict(fit, newdata = prediction_grid, type = "response", se.fit = TRUE)
+
+prediction_grid$prediction <- prediction_with_se[["fit"]]
+prediction_grid$se <- prediction_with_se[["se.fit"]]
+
+# Calculate confidence intervals
+prediction_grid$lower <- prediction_grid$prediction - 1.96 * prediction_grid$se
+prediction_grid$upper <- prediction_grid$prediction + 1.96 * prediction_grid$se
+
+summaryModel <- summary(fit)$coefficients
+
+p <- prediction_grid %>% ggplot(aes(x = pm25VanD20002016, y = prediction, color = vdem_bin)) +
+  geom_line() +
+  scale_color_manual(values = c("#9fcbee", "#d8031c"), guide = "none") +
+  geom_abline(slope = 0, intercept = 1, linewidth = 0.4, linetype = "dashed")+
+  geom_ribbon(aes(ymin = lower, ymax = upper, fill = vdem_bin), alpha = 0.2) +
+  scale_fill_manual(values = c("#9fcbee", "#d8031c"),
+                    labels = c("Democracies (V-Dem > 0.5)", "Non-Democracies (V-Dem < 0.5)")) +
+  labs(x = expression(paste("Pollution level 2000-2016 (PM2.5 -", italic(" µg/m3)")))
+                      , y = "Predicted Probability of Monitoring", fill = "V-Dem Binary") +
+  theme_minimal()+
+    theme(
+    strip.background = element_blank(),
+    strip.text.x = element_blank()
+    # axis.text.x = element_text(size=7)
+  )
+
+p
+
+ggsave(plot = p, filename = paste("plotsExtra/subsamplingLogit/figure1Main_", i, ".png", sep = ""),
+       dpi=600, width = 14, height = 8, units='cm')
+
+summary_iteractions$iteration[i] <- i
+summary_iteractions$estimate[i] <- summary(fit)$coefficients["pm25VanD20002016:vdem_bin1democracy", "Estimate"]
+summary_iteractions$pvalue[i] <- summary(fit)$coefficients["pm25VanD20002016:vdem_bin1democracy", "Pr(>|z|)"]
+
+}
+
+
+p <- summary_iteractions %>% ggplot(aes(x = estimate))+
+  geom_histogram(bins = 50,  fill = "black")+
+  labs(x = "Interaction Coefficient Estimate", y = "Count") +
+  theme_minimal()
+
+ggsave(plot = p, filename = paste("plotsExtra/subsamplingLogit/suppFig6histInteraction.png", sep = ""),
+       dpi=600, width = 12, height = 10, units='cm')
+
+range(summary_iteractions$pvalue)
+
+summary_iteractions %>% ggplot(aes(x = pvalue))+
+  geom_histogram(bins = 100,  fill = "black")+
+  labs(x = "P-value of the interaction", y = "Count") +
+  theme_minimal()
+
+
+```
+
+
+```{r testing whether different subsets of the IND / CHN subsampling lead to different results in multiverse --- MAYBE NOT NEEDED, PREVIOUS CHUNK IS ENOUGH}
+
+library(multiverse)
+library(tidyverse)
+library(pscl) # for poisson regression
+library(broom)
+
+"%ni%" = Negate("%in%")
+
+dir.create("plotsExtra/multiverseSubsamplingLogit")
+
+FUA_data <- read.csv("outputData/FUA_nsf_merged_monitorsOpenAQWAQI.csv")
+
+FUA_gridded <- read.csv("outputData/FUA_nsf_monitors_mergedGrid.csv")
+FUA_data <- merge(FUA_data, FUA_gridded, by = "ID_HDC_G0")
+
+# FUA_data$isMonitorAll <- as.factor(ifelse(FUA_data$numberMonitors>0, 1, 0))
+# FUA_data$isMonitorWAQIOpenAQ_embassy <- as.factor(ifelse(FUA_data$numberMonitorsWAQIOpenAQ_embassy>0, 1, 0))
+# FUA_data$isMonitorWAQIOpenAQ_noEmbassy <- as.factor(ifelse(FUA_data$numberMonitorsWAQIOpenAQ_noEmbassy>0, 1, 0))
+# 
+# FUA_data$isGovMonitor <- as.factor(ifelse(FUA_data$numberGovMonitors>0, 1, 0))
+# FUA_data$isNonGovMonitor <- as.factor(ifelse(FUA_data$numberNonGovMonitors>0, 1, 0))
+# FUA_data$isNonUSEMonitor <- as.factor(ifelse((FUA_data$numberMonitors - FUA_data$numberUSEmbassyMonitors)>0, 1, 0))
+
+nonOECDFUA <- subset(FUA_data, oecd != 'OECD')
+nonOECDFUA <- subset(nonOECDFUA, INCM_CMI %ni% c('HIC', 'Other') & !is.na(INCM_CMI)) # remove high income countries and NA
+nonOECDFUA <- subset(nonOECDFUA, !is.na(vdem_bin)) # here I subset the countries that are not in the vdem dataset
+# nonOECDFUA_woINDCHN <- subset(nonOECDFUA, CTR_MN_NM %ni% c('India', 'China')) # here I subset india and china
+
+nonOECDFUA <- subset(nonOECDFUA, log(GDP15_SM+1) != 0) # here I subset the countries that are not in the vdem dataset
+nonOECDFUA$GDP15_SMpc <- nonOECDFUA$GDP15_SM/nonOECDFUA$P15
+
+# Try with a dummy IND and CHN
+nonOECDFUA$dummyCHN <- as.factor(ifelse(nonOECDFUA$CTR_MN_NM == "China", 1, 0))
+nonOECDFUA$dummyIND <- as.factor(ifelse(nonOECDFUA$CTR_MN_NM == "India", 1, 0))
+
+nonOECDFUA$vdem_bin <- ifelse(nonOECDFUA$vdem_bin == "non-democracy", "0non-democracy",
+                                       ifelse(nonOECDFUA$vdem_bin == "democracy", "1democracy", NA))
+
+# Below we sub-sample IND and CHN because they make up the whole dataset otherwise
+# Step 1: Identify the number of rows of the third most present label
+label_counts <- nonOECDFUA %>%
+  count(CTR_MN_NM) %>%
+  arrange(desc(n))
+
+# Number of rows to sample for "India" and "China"
+target_rows <- label_counts$n[3]
+
+summary_iteractions <- data.frame(matrix(NA, nrow = 100, ncol = 3))
+colnames(summary_iteractions) <- c("iteration", "estimate", "pvalue")
+
+for(i in 1:100){
+  set.seed(123+i)
+  
+  # Subsample for "India" and "China"
+  # Step 2: Adjust the rows for "India"
+  df_india_adjusted <- nonOECDFUA %>%
+    filter(CTR_MN_NM == "India") %>%
+    sample_n(min(n(), target_rows))
+  
+  # Step 2: Adjust the rows for "China"
+  df_china_adjusted <- nonOECDFUA %>%
+    filter(CTR_MN_NM == "China") %>%
+    sample_n(min(n(), target_rows))
+  
+  # Combine adjusted "India" and "China" with other labels
+  nonOECDFUA_adjusted <- nonOECDFUA %>%
+    filter(!CTR_MN_NM %in% c("India", "China")) %>%
+    bind_rows(df_india_adjusted, df_china_adjusted)
+
+mv <- multiverse()
+
+# Branching on model type
+inside(mv, {
+  
+  dataset <- nonOECDFUA_adjusted
+  
+  dataset$numberMonitors <- branch(monitorsType,
+                                   "everything" ~ dataset$numberMonitors,
+                                   "everything_noEmbassy" ~ dataset$numberMonitors - dataset$numberUSEmbassyMonitors,
+                                   "ref_embassy" ~ dataset$numberRefMonitor + dataset$numberUSEmbassyMonitors,
+                                   "ref_only" ~ dataset$numberRefMonitors,
+                                   "airSensors_only" ~ dataset$numberSensMonitors
+                                   )
+  
+  dataset$pm25Data <- branch(pollutionDataset,
+                                "OECDsource" ~ dataset$E_CPM2_T10,
+                                "vanD20002016" ~ dataset$pm25VanD20002016)
+  
+  dataset$isMonitor <- as.factor(ifelse(dataset$numberMonitors>0, 1, 0))
+  
+  fit <- branch(model,
+                "logit" ~ glm(formula = isMonitor
+                              ~ log(GDP15_SMpc+1) +  pm25Data * vdem_bin +
+                      conflict_cumulative_intensity_22 +
+                      CPI_2012_2022 +
+                      capital +
+                      log(P15)
+                      + dummyCHN + dummyIND
+                    , binomial(link = "logit"), data = dataset),
+                "poisson" ~ glm(formula = numberMonitors 
+                                     ~ log(GDP15_SMpc+1) + pm25Data * vdem_bin +
+                                       conflict_cumulative_intensity_22 +
+                                       CPI_2012_2022 +
+                                       capital +
+                                       log(P15)
+                                       + dummyIND + dummyCHN
+                                     ,
+                                     data = dataset, family = poisson()))
+  }
+)
+
+inside(mv, {
+  # 
+  prediction_grid <- expand.grid(
+    GDP15_SMpc = mean(dataset$GDP15_SMpc, na.rm = TRUE), # Using median or mean as appropriate
+    vdem_bin = c("1democracy", "0non-democracy"), # Both categories
+    pm25Data = seq(min(dataset$pm25Data, na.rm = TRUE), max(dataset$pm25Data, na.rm = TRUE), length.out = 100),
+    conflict_cumulative_intensity_22 = "nowar",
+    CPI_2012_2022 = mean(dataset$CPI_2012_2022, na.rm = TRUE),
+    P15 = mean(dataset$P15, na.rm = TRUE),
+    capital = 1,
+    dummyIND = 0,
+    dummyCHN = 0
+  )
+  
+  prediction_grid$vdem_bin <- as.factor(prediction_grid$vdem_bin)
+  prediction_grid$dummyIND <- as.factor(prediction_grid$dummyIND)
+  prediction_grid$dummyCHN <- as.factor(prediction_grid$dummyCHN)
+
+  # Generate predictions (here counts or probability depending if logit or poisson)
+  prediction_with_se <- predict(fit, newdata = prediction_grid, type = "response", se.fit = TRUE)
+  
+  prediction_grid$prediction <- prediction_with_se[["fit"]]
+  prediction_grid$se <- prediction_with_se[["se.fit"]]
+  
+  # Calculate confidence intervals
+  prediction_grid$lower <- prediction_grid$prediction - 1.96 * prediction_grid$se
+  prediction_grid$upper <- prediction_grid$prediction + 1.96 * prediction_grid$se
+  
+  summaryModel <- summary(fit)$coefficients
+})
+
+
+# Execute all combinations of branches
+execute_multiverse(mv)
+
+expanded <- multiverse::expand(mv)
+
+predictionGridExpanded <- expanded %>%
+  mutate(prediction_grid = purrr::map(.results, "prediction_grid"))
+
+gridPredictionModels <- predictionGridExpanded %>% unnest(cols = c(prediction_grid))
+
+# Plot
+# p <- gridPredictionModels %>% ggplot(aes(x = pm25Data, y = prediction, color = vdem_bin)) +
+#   geom_line() +
+#   scale_color_manual(values = c("#9fcbee", "#d8031c")) +
+#   geom_abline(slope = 0, intercept = 1)+
+#   geom_ribbon(aes(ymin = lower, ymax = upper, fill = vdem_bin), alpha = 0.2) +
+#   scale_fill_manual(values = c("#9fcbee", "#d8031c")) +
+#   labs(x = "PM2.5", y = "Predicted Presence", color = "VDem Binary") +
+#   theme_minimal()+
+#   facet_wrap(~ model + dataset_choice + monitorsType + pollutionDataset, scales = "free_y", ncol = 8, strip.position = c("top"))
+# 
+# ggsave(plot = p, filename = paste('C:/Users/cfournier/work_files/air_quality/majaDataCode/advanced/finalFigures/labelMultiverse.png', sep = ""),
+#        dpi=600, width = 25, height = 20, units='cm')
+# 
+# 
+# p <- gridPredictionModels %>% ggplot(aes(x = pm25Data, y = prediction, color = vdem_bin)) +
+#   geom_line() +
+#   scale_color_manual(values = c("#9fcbee", "#d8031c")) +
+#   geom_abline(slope = 0, intercept = 1)+
+#   geom_ribbon(aes(ymin = lower, ymax = upper, fill = vdem_bin), alpha = 0.2) +
+#   scale_fill_manual(values = c("#9fcbee", "#d8031c")) +
+#   labs(x = "PM2.5", y = "Predicted Presence", color = "VDem Binary") +
+#   theme_minimal()+
+#   facet_wrap(~ model + dataset_choice + monitorsType + pollutionDataset, scales = "free_y", ncol = 8, strip.position = c("top"))+
+#   theme(
+#     strip.background = element_blank(),
+#     strip.text.x = element_blank(),
+#     axis.text.x = element_text(size=7)
+#   )
+
+# ggsave(plot = p, filename = paste('C:/Users/cfournier/work_files/air_quality/majaDataCode/advanced/finalFigures/noLabelMultiverse.png', sep = ""),
+#        dpi=600, width = 28, height = 10, units='cm')
+
+
+summaryModels <- expanded %>%
+  mutate(summaryModel = purrr::map(.results, "summaryModel"))
+
+# glimpse(summaryModels$summaryModel)
+
+# Extract the specific value from each summaryModel
+summaryModelsPValuePollution <- summaryModels %>%
+  mutate(estimate = purrr::map(summaryModel, ~ .x["pm25Data:vdem_bin1democracy", "Estimate"]),
+         p_value = purrr::map(summaryModel, ~ .x["pm25Data:vdem_bin1democracy", "Pr(>|z|)"]))
+
+# Unnest the list of specific values into a column
+summaryModelsfinal <- summaryModelsPValuePollution %>%
+  unnest(cols = c(estimate, p_value))
+
+
+# summaryModels <- expanded %>%
+#   mutate(summaryModel = map(.results, "summaryModel")) %>% 
+#   filter(model == "poisson")
+
+# glimpse(summaryModels$summaryModel)
+
+# Extract the specific value from each summaryModel
+# summaryModelsPValuePollution <- summaryModels %>%
+#   mutate(estimate = map(summaryModel, ~ .x[[1]]["pm25Data:vdem_binnon-democracy", "Estimate"]),
+#          p_value = map(summaryModel, ~ .x[[1]]["pm25Data:vdem_binnon-democracy", "Pr(>|z|)"]))
+
+# Unnest the list of specific values into a column
+# summaryModelsPoisson <- summaryModelsPValuePollution %>%
+#   unnest(cols = c(estimate, p_value))
+
+mergedSummaries <- summaryModelsfinal %>% select(.universe, estimate, p_value)
+
+rowOfInterest <- subset(mergedSummaries, `.universe` == 7)
+summary_iteractions$iteration[i] <- i
+summary_iteractions$estimate[i] <- rowOfInterest$estimate
+summary_iteractions$pvalue[i] <- rowOfInterest$p_value
+
+full_df <- merge(gridPredictionModels, mergedSummaries, by = ".universe")
+
+p_value_to_symbol <- function(p) {
+  if (p <= 0.001) {
+    return("***")
+  } else if (p <= 0.01) {
+    return("**")
+  } else if (p <= 0.05) {
+    return("*")
+  } else {
+    return("ns")
+  }
+}
+
+full_df$symbol <- sapply(full_df$p_value, p_value_to_symbol)
+
+# symbols
+
+p <- full_df %>% ggplot(aes(x = pm25Data, y = prediction, color = vdem_bin)) +
+  geom_line() +
+  scale_color_manual(values = c("#9fcbee", "#d8031c")) +
+  geom_abline(slope = 0, intercept = 1, linewidth = 0.4, linetype = "dashed")+
+  geom_ribbon(aes(ymin = lower, ymax = upper, fill = vdem_bin), alpha = 0.2) +
+  scale_fill_manual(values = c("#9fcbee", "#d8031c")) +
+  geom_text(data = full_df, aes(x = Inf, y = Inf, label = symbol),
+            hjust = 2, vjust = 1.1, size = 3, color = "black", inherit.aes = FALSE) +
+  geom_text(data = full_df, aes(x = Inf, y = Inf, label = round(estimate, 2)),
+            hjust = 2.5, vjust = 1.2, size = 3, color = "black", inherit.aes = FALSE) +
+  labs(x = "PM2.5", y = "Predicted Presence", color = "VDem Binary") +
+  theme_minimal()+
+  facet_wrap(~ model + pollutionDataset + monitorsType, scales = "free_y", ncol = 5, strip.position = c("top"))+
+    theme(
+    strip.background = element_blank(),
+    strip.text.x = element_blank(),
+    axis.text.x = element_text(size=7)
+  )
+
+p
+
+ggsave(plot = p, filename = paste("plotsExtra/multiverseSubsamplingLogit/noLabelMultiverseSign_", i, ".png", sep = ""),
+       dpi=600, width = 28, height = 10, units='cm')
+  
+}
+
+
+p <- summary_iteractions %>% ggplot(aes(x = estimate))+
+  geom_histogram(bins = 50,  fill = "black")+
+  labs(x = "Effect Size Estimate", y = "Count") +
+  theme_minimal()
+
+ggsave(plot = p, filename = paste("plotsExtra/multiverseSubsamplingLogit/histEstimateEffectInteraction.png", sep = ""),
+       dpi=600, width = 12, height = 10, units='cm')
+
+range(summary_iteractions$pvalue)
+
+summary_iteractions %>% ggplot(aes(x = pvalue))+
+  geom_histogram(bins = 100,  fill = "black")+
+  labs(x = "P-value of the interaction", y = "Count") +
+  theme_minimal()
+
+table(summary_iteractions$pvalue < 0.05)
+
+```
+
+
