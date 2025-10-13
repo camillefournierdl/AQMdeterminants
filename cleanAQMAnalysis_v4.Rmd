@@ -9,6 +9,7 @@ output: html_document
 set.seed(123)
 
 library(tidyverse)
+library(perm)
 
 "%ni%" = Negate("%in%")
 
@@ -313,6 +314,39 @@ for (i in seq_along(variables)) {
   cat("\n")
 }
 
+## for getting the effect size:
+
+permTS(nonOECDFUA_adjusted %>% 
+         filter(isNonUSMonitor == 0) %>%
+         mutate(GDP15_SMpcLog = log(GDP15_SMpc)) %>% 
+         pull(GDP15_SMpcLog),
+       nonOECDFUA_adjusted %>% 
+         filter(isNonUSMonitor == 1) %>% 
+         mutate(GDP15_SMpcLog = log(GDP15_SMpc)) %>% 
+         pull(GDP15_SMpcLog)
+       , method = "exact.mc", control = permControl(nmc = 1000))
+
+permTS(nonOECDFUA_adjusted %>% 
+         filter(isNonUSMonitor == 0) %>%
+         pull(mean_edi) %>%
+         na.omit(),
+       nonOECDFUA_adjusted %>% 
+         filter(isNonUSMonitor == 1) %>% 
+         pull(mean_edi) %>%
+         na.omit()
+       , method = "exact.mc", control = permControl(nmc = 1000))
+
+permTS(nonOECDFUA_adjusted %>% 
+         filter(isNonUSMonitor == 0) %>%
+         filter(!is.na(pm25VanD20002016)) %>%
+         pull(pm25VanD20002016),
+       nonOECDFUA_adjusted %>% 
+         filter(isNonUSMonitor == 1) %>% 
+         filter(!is.na(pm25VanD20002016)) %>%
+         pull(pm25VanD20002016)
+       , method = "exact.mc", control = permControl(nmc = 1000))
+
+
 ##########
 permTS(as.numeric(nonOECDFUA_adjusted %>% filter(vdem_bin == "non-democracy") %>% pull(pm25VanD20002016) %>% na.omit()), as.numeric(nonOECDFUA_adjusted %>% filter(vdem_bin == "democracy") %>% pull(pm25VanD20002016) %>% na.omit()), method = "exact.mc", control = permControl(nmc = 1000))
 
@@ -444,13 +478,49 @@ term_order <- c("All databases",
 data3Sub <- data3Sub %>%
   mutate(category = factor(category, levels = term_order))
 
+legend_df <- data.frame(category = names(category_colors)) %>% 
+  mutate(category = factor(category, levels = term_order))
+
+category_colors <- c(
+  "All databases" = "darkgrey",
+  "PurpleAir & WAQI" = "#EC9FAE",
+  "PurpleAir & OpenAQ" = "#88B9E5",
+  "PurpleAir" = "#FFA5FF",
+  "WAQI & OpenAQ" = "#91C17F",
+  "WAQI" = "#FFCF00",
+  "OpenAQ" = "#00FFE5"
+  )
+
+shape_map <- c(
+  "All databases" = 16,
+  "PurpleAir & WAQI" = 16,
+  "PurpleAir & OpenAQ" = 16,
+  "PurpleAir" = 15,
+  "WAQI & OpenAQ" = 16,
+  "WAQI" = 17,
+  "OpenAQ" = 18
+)
+
 p <- ggplot(data3Sub, aes(x = category, fill = category)) +
   geom_bar() +
-  scale_fill_manual(values = category_colors) +
+  # 1) Hide the bar's fill legend
+  scale_fill_manual(values = category_colors, guide = "none") +
   labs(x = "Monitors in database(s)",
-       y = "Number of Monitors",
-       fill = "Database") +
+       y = "Number of Monitors") +
   theme_minimal() +
+  geom_point(
+    data = legend_df,
+    aes(x = 0, y = 0, shape = category, color = category),
+    inherit.aes = FALSE,
+    size = 3,
+    alpha = 0
+  ) +
+  # 2) Keep both color + shape scales visible and give them the same title
+  scale_shape_manual(values = shape_map, name = "Database") +
+  scale_color_manual(values = category_colors, name = "Database") +
+  guides(
+    shape = guide_legend(override.aes = list(alpha = 1, size = 4))
+  ) +
   theme(axis.text.x = element_text(angle = 45, hjust = 1))
 
 ggsave(plot = p, filename = paste('plotsMain/nbMonitorsDatabasesinFua.png', sep = ""),
@@ -477,13 +547,35 @@ world_countries_subset <- world_countries %>%
 world_countries <- world_countries_subset %>% st_transform(crs = targetCRS)  %>%
   st_make_valid()
 
+category_colors <- c(
+  "All databases" = "darkgrey",
+  "PurpleAir & WAQI" = "#EC9FAE",
+  "PurpleAir & OpenAQ" = "#88B9E5",
+  "PurpleAir" = "#FFA5FF",
+  "WAQI & OpenAQ" = "#91C17F",
+  "WAQI" = "#FFCF00",
+  "OpenAQ" = "#00FFE5",
+  "None" = "black"
+)
+
+shape_map <- c(
+  "darkgrey" = 16,
+  "#00FFE5" = 18,
+  "#FFCF00" = 17,
+  "#FFA5FF" = 15,
+  "#91C17F" = 16,
+  "#88B9E5" = 16,
+  "#EC9FAE" = 16
+)
+
 
 map_plot <- ggplot() +
   # geom_rect(aes(xmin = -180, xmax = 180, ymin = -90, ymax = 90), fill = "black") + # if we want to change background color
   geom_sf(data = world_countries, aes(fill = OECD_status), color = "lightgrey") +
   scale_fill_manual(values = c("lightgrey", "#F5F5F5"))+
-  geom_sf(data = mollPointdf, aes(color = color), size = 0.8, alpha = 0.3) +
+  geom_sf(data = mollPointdf, aes(color = color, shape = color), size = 0.8, alpha = 0.3) +
   scale_color_identity() +
+  scale_shape_manual(values = shape_map, na.translate = FALSE) +
   coord_sf(crs = targetCRS) +  # This keeps the 1:1 aspect ratio
   theme_void()+
   theme(legend.position = "none")
@@ -2322,7 +2414,7 @@ nonOECDFUA_adjusted <- nonOECDFUA %>%
   bind_rows(df_india_adjusted, df_china_adjusted)
 
 fit <- glm(formula = isMonitor
-                            ~ log(GDP15_SMpc+1) + pm25VanD20002016 * vdem_bin +
+                            ~ log(GDP15_SMpc+1) + pm25VanD20002016 * vdem_bin + 
                     conflict_cumulative_intensity_22 +
                     CPI_2012_2022 +
                     capital +
@@ -2331,8 +2423,7 @@ fit <- glm(formula = isMonitor
                   , binomial(link = "logit"), data = nonOECDFUA_adjusted)
 
 # Test with the Poisson Regression, to compare "goodness of fit"
-model <- glm(formula = numberMonitors 
-~ log(GDP15_SMpc+1) + pm25VanD20002016 * vdem_bin +
+model <- glm(formula = numberMonitors ~ log(GDP15_SMpc+1) + pm25VanD20002016 * vdem_bin +
  conflict_cumulative_intensity_22 +
  CPI_2012_2022 +
  log(P15) +
@@ -2340,9 +2431,9 @@ model <- glm(formula = numberMonitors
   +  dummyIND +
   +  dummyCHN
   ,
-data = nonOECDFUA_adjusted, family = poisson())
+data = nonOECDFUA_adjusted, family = poisson(link = "log"))
 
-AIC(model) # 7286.738
+AIC(model) # 8758.769
 
 prediction_grid <- expand.grid(
   GDP15_SMpc = mean(nonOECDFUA_adjusted$GDP15_SMpc, na.rm = TRUE), # Using median or mean as appropriate
