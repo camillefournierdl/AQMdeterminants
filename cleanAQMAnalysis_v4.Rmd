@@ -1211,6 +1211,23 @@ listFUA_nonOECD <- unique(df_nonOECD_fua$ID_HDC_G0)
 
 FUAs_nonOECD <- subset(FUAs_sp, ID_HDC_G0 %in% listFUA_nonOECD)
 
+data3 <- read.csv('outputData/mergedMonitors2_final.csv', sep = ',', allowEscapes = T)
+
+data3Sub <- subset(data3, !is.na(longitude))
+
+#load list of FUAs to keep
+df_nonOECD_fua <- read.csv('outputData/FUA_nsf_merged_monitors_nonOECD.csv', sep = ',', allowEscapes = T) 
+
+listFUA_nonOECD <- unique(df_nonOECD_fua$ID_HDC_G0)
+
+FUAs_sp <- st_read("data/FUA_fixed_geom.gpkg") # spatially explicit FUAs
+
+listFUA_nonOECD <- unique(df_nonOECD_fua$ID_HDC_G0)
+
+FUAs_nonOECD <- subset(FUAs_sp, ID_HDC_G0 %in% listFUA_nonOECD)
+
+data3Sub_sf <- st_as_sf(data3Sub, coords = c("longitude", "latitude"), crs = 4326)
+
 points_within_fuas <- st_join(data3Sub_sf, FUAs_nonOECD, join = st_intersects) %>% subset(., !is.na(ID_HDC_G0))
 
 points_within_fuas <- subset(points_within_fuas, type %in% c("Reference Grade", "Sensor"))
@@ -1323,7 +1340,7 @@ nonOECDFUA <- subset(nonOECDFUA, !is.na(vdem_bin)) # here I subset the countries
 nonOECDFUA$vdem_bin <- ifelse(nonOECDFUA$vdem_bin == "non-democracy", "0non-democracy",
                                        ifelse(nonOECDFUA$vdem_bin == "democracy", "1democracy", NA))
 
-nonOECDFUA <- subset(nonOECDFUA, GDP15_SM != 0) # here I subset the countries that are not in the vdem dataset
+nonOECDFUA <- subset(nonOECDFUA, GDP15_SM != 0)
 
 nonOECDFUA$GDP15_SMpc <- nonOECDFUA$GDP15_SM/nonOECDFUA$P15
 
@@ -2378,7 +2395,7 @@ nonOECDFUA <- subset(nonOECDFUA, !is.na(vdem_bin)) # here I subset the countries
 nonOECDFUA$vdem_bin <- ifelse(nonOECDFUA$vdem_bin == "non-democracy", "0non-democracy",
                                        ifelse(nonOECDFUA$vdem_bin == "democracy", "1democracy", NA))
 
-nonOECDFUA <- subset(nonOECDFUA, GDP15_SM != 0) # here I subset the countries that are not in the vdem dataset
+nonOECDFUA <- subset(nonOECDFUA, GDP15_SM != 0) #
 
 nonOECDFUA$GDP15_SMpc <- nonOECDFUA$GDP15_SM/nonOECDFUA$P15
 
@@ -2516,7 +2533,7 @@ nonOECDFUA <- subset(FUA_data, oecd != 'OECD')
 nonOECDFUA <- subset(nonOECDFUA, INCM_CMI %ni% c('HIC', 'Other') & !is.na(INCM_CMI)) # remove high income countries and NA
 nonOECDFUA <- subset(nonOECDFUA, !is.na(vdem_bin)) # here I subset the countries that are not in the vdem dataset
 
-nonOECDFUA <- subset(nonOECDFUA, log(GDP15_SM+1) != 0) # here I subset the countries that are not in the vdem dataset
+nonOECDFUA <- subset(nonOECDFUA, GDP15_SM != 0) #
 nonOECDFUA$GDP15_SMpc <- nonOECDFUA$GDP15_SM/nonOECDFUA$P15
 
 nonOECDFUA$vdem_bin <- ifelse(nonOECDFUA$vdem_bin == "non-democracy", "0non-democracy",
@@ -2844,7 +2861,7 @@ nonOECDFUA <- subset(FUA_data, oecd != 'OECD')
 nonOECDFUA <- subset(nonOECDFUA, INCM_CMI %ni% c('HIC', 'Other') & !is.na(INCM_CMI)) # remove high income countries and NA
 nonOECDFUA <- subset(nonOECDFUA, !is.na(vdem_bin)) # here I subset the countries that are not in the vdem dataset
 
-nonOECDFUA <- subset(nonOECDFUA, GDP15_SM != 0) # here I subset the countries that have GDP = 0
+nonOECDFUA <- subset(nonOECDFUA, GDP15_SM != 0) # 
 
 nonOECDFUA$isMonitor <- as.numeric(ifelse((nonOECDFUA$numberMonitor - nonOECDFUA$numberUSEmbassyMonitors) > 0, 1, 0))
 
@@ -2999,7 +3016,7 @@ nonOECDFUA <- subset(FUA_data, oecd != 'OECD')
 nonOECDFUA <- subset(nonOECDFUA, INCM_CMI %ni% c('HIC', 'Other') & !is.na(INCM_CMI)) # remove high income countries and NA
 nonOECDFUA <- subset(nonOECDFUA, !is.na(vdem_bin)) # here I subset the countries that are not in the vdem dataset
 
-nonOECDFUA <- subset(nonOECDFUA, GDP15_SM != 0) # here I subset the countries that are not in the vdem dataset
+nonOECDFUA <- subset(nonOECDFUA, GDP15_SM != 0) #
 
 nonOECDFUA$isMonitor <- as.factor(ifelse((nonOECDFUA$numberMonitor) > 0, 1, 0))
 nonOECDFUA$isNonUSMonitor <- as.factor(ifelse((nonOECDFUA$numberMonitor - nonOECDFUA$numberUSEmbassyMonitors) > 0, 1, 0))
@@ -3205,7 +3222,7 @@ nonOECDFUA <- subset(FUA_data, oecd != 'OECD')
 nonOECDFUA <- subset(nonOECDFUA, INCM_CMI %ni% c('HIC', 'Other') & !is.na(INCM_CMI)) # remove high income countries and NA
 nonOECDFUA <- subset(nonOECDFUA, !is.na(vdem_bin)) # here I subset the countries that are not in the vdem dataset
 
-nonOECDFUA <- subset(nonOECDFUA, GDP15_SM != 0) # here I subset the countries that are not in the vdem dataset
+nonOECDFUA <- subset(nonOECDFUA, GDP15_SM != 0) # 
 nonOECDFUA$GDP15_SMpc <- nonOECDFUA$GDP15_SM/nonOECDFUA$P15
 
 nonOECDFUA$isMonitor <- as.factor(ifelse((nonOECDFUA$numberMonitor - nonOECDFUA$numberUSEmbassyMonitors) > 0, 1, 0))
@@ -3330,7 +3347,7 @@ nonOECDFUA <- subset(nonOECDFUA, INCM_CMI %ni% c('HIC', 'Other') & !is.na(INCM_C
 nonOECDFUA <- subset(nonOECDFUA, !is.na(vdem_bin)) # here I subset the countries that are not in the vdem dataset
 # nonOECDFUA_woINDCHN <- subset(nonOECDFUA, CTR_MN_NM %ni% c('India', 'China')) # here I subset india and china
 
-nonOECDFUA <- subset(nonOECDFUA, GDP15_SM != 0) # here I subset the countries that are not in the vdem dataset
+nonOECDFUA <- subset(nonOECDFUA, GDP15_SM != 0) #
 nonOECDFUA$GDP15_SMpc <- nonOECDFUA$GDP15_SM/nonOECDFUA$P15
 
 nonOECDFUA$isMonitor <- as.factor(ifelse((nonOECDFUA$numberMonitor - nonOECDFUA$numberUSEmbassyMonitors) > 0, 1, 0))
@@ -3486,7 +3503,7 @@ nonOECDFUA <- subset(nonOECDFUA, INCM_CMI %ni% c('HIC', 'Other') & !is.na(INCM_C
 nonOECDFUA <- subset(nonOECDFUA, !is.na(vdem_bin)) # here I subset the countries that are not in the vdem dataset
 # nonOECDFUA_woINDCHN <- subset(nonOECDFUA, CTR_MN_NM %ni% c('India', 'China')) # here I subset india and china
 
-nonOECDFUA <- subset(nonOECDFUA, log(GDP15_SM+1) != 0) # here I subset the countries that are not in the vdem dataset
+nonOECDFUA <- subset(nonOECDFUA, log(GDP15_SM+1) != 0) #
 nonOECDFUA$GDP15_SMpc <- nonOECDFUA$GDP15_SM/nonOECDFUA$P15
 
 # Try with a dummy IND and CHN
