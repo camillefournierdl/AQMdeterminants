@@ -4,6 +4,6 @@
 .Rproj.user
 .Ruserdata
 
-plotsExtra/
+plotsExtra/subsamplingLogit
 data/mergedMonitors_v6.csv
 outputData/mergedMonitors2_final.csv
