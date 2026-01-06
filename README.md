@@ -24,6 +24,11 @@ final publication.
 ## Datasets used
 
 Datasets used in this analysis are all described in the Methods section of the paper and summarized in Table S3 of the Appendix.
+All data used in the analysis are publicly available, with the exception of commercial data from PurpleAir.
+We thank all other providers of publicly available data used in this analysis, notably WAQI and OpenAQ for making their data available to all.
+
+We include all datasets used in this analysis in the data/ folder, except for the AQM dataset that cannot be shared fully due to commercial restrictions.
+We provide a sample of the AQM data that does not include PurpleAir sensors in the data/ folder.
 
 ## Repository Structure
 
