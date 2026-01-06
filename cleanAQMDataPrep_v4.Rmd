@@ -5,22 +5,9 @@ date: "2025-09-02"
 output: html_document
 ---
 
-```{r clean final dataset- old dataset}
-
-data3 <- read.csv('C:/Users/cfournier/work_files/air_quality/bigDatasetUnion/codeOutput/mergedMonitors2.csv', sep = ',', allowEscapes = T)
-
-data3$type <- ifelse(is.na(data3$type), "citizen", data3$type)
-
-data3$type <- ifelse(data3$type == "official", "Reference Grade", 
-                                      ifelse(data3$type == "citizen", "Sensor", "Embassy"))
-
-write.csv(x=data3, file="outputData/mergedMonitors2_final.csv", row.names = F)
-
-```
-
 ```{r clean final dataset- newest dataset}
 
-data3 <- read.csv('C:/Users/cfournier/work_files/air_quality/bigDatasetUnion/codeOutput/mergedMonitors_v6.csv', sep = ',', allowEscapes = T)
+data3 <- read.csv('data/mergedMonitors_v6.csv', sep = ',', allowEscapes = T)
 
 data3$type <- ifelse(!data3$isMonitor, "Sensor", "Reference Grade")
 
