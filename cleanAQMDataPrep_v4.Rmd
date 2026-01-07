@@ -9,7 +9,7 @@ output: html_document
 
 library(tidyverse)
 
-data3 <- read.csv('data/mergedMonitors_v6.csv', sep = ',', allowEscapes = T)
+data3 <- read.csv('data/mergedMonitors_v6.csv', sep = ',', allowEscapes = T) # replace with provided sample dataset e.g., sampleAQM.csv
 
 data3$type <- ifelse(!data3$isMonitor, "Sensor", "Reference Grade")
 

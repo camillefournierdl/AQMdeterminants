@@ -28,7 +28,7 @@ All data used in the analysis are publicly available, with the exception of comm
 We thank all other providers of publicly available data used in this analysis, notably WAQI and OpenAQ for making their data available to all.
 
 We include all datasets used in this analysis in the data/ folder, except for the AQM dataset that cannot be shared fully due to commercial restrictions.
-We provide a sample of the AQM data that does not include PurpleAir sensors in the data/ folder.
+We provide a sample of the AQM data that does not include PurpleAir sensors in the data/ folder, sampleAQM.csv.
 
 ## Repository Structure
 
@@ -43,7 +43,6 @@ We provide a sample of the AQM data that does not include PurpleAir sensors in t
     ├── cleanAQMAnalysis_v4.Rmd
     ├── outputData/
     ├── plots/
-    ├── plotsExtra/
     ├── plotsMain/
     ├── README.md
     ├── .gitignore
@@ -55,7 +54,7 @@ We provide a sample of the AQM data that does not include PurpleAir sensors in t
 The cleanAQMDataPrep_v4.Rmd script is used to create data used in the final analysis, for which outputs are stored in the outputData folder. 
 It should be ran before the cleanAQMAnalysis_v4.Rmd script.
 
-The three plots folder contain figures used in the main analysis, as well as extra visualisations that were created during the research process.
+The two plots folder contain figures used in the main analysis, as well as extra visualisations that were created during the research process.
 We include all plots for transparency, even if they were not used in the final publication.
 
 The revision folder contains scripts and data added after submission.

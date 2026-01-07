@@ -13,27 +13,27 @@ library(perm)
 
 "%ni%" = Negate("%in%")
 
-FUA_data <- read.csv("outputData/FUA_nsf_merged_monitorsOpenAQWAQI.csv")
+UC_data <- read.csv("outputData/UC_nsf_merged_monitorsOpenAQWAQI.csv")
 
-FUA_gridded <- read.csv("outputData/FUA_nsf_monitors_mergedGrid.csv")
-FUA_data <- merge(FUA_data, FUA_gridded, by = "ID_HDC_G0")
+UC_gridded <- read.csv("outputData/UC_nsf_monitors_mergedGrid.csv")
+UC_data <- merge(UC_data, UC_gridded, by = "ID_HDC_G0")
 
-nonOECDFUA <- subset(FUA_data, oecd != 'OECD')
-nonOECDFUA <- subset(nonOECDFUA, INCM_CMI %ni% c('HIC', 'Other') & !is.na(INCM_CMI)) # remove high income countries and NA
-nonOECDFUA <- subset(nonOECDFUA, !is.na(vdem_bin)) # here I subset the countries that are not in the vdem dataset
+nonOECDUC <- subset(UC_data, oecd != 'OECD')
+nonOECDUC <- subset(nonOECDUC, INCM_CMI %ni% c('HIC', 'Other') & !is.na(INCM_CMI)) # remove high income countries and NA
+nonOECDUC <- subset(nonOECDUC, !is.na(vdem_bin)) # here I subset the countries that are not in the vdem dataset
 
-nonOECDFUA <- subset(nonOECDFUA, GDP15_SM != 0) # also remove cities that do not have GDP per capita 
+nonOECDUC <- subset(nonOECDUC, GDP15_SM != 0) # also remove cities that do not have GDP per capita 
 
-nonOECDFUA$isMonitor <- as.factor(ifelse((nonOECDFUA$numberMonitor) > 0, 1, 0))
-nonOECDFUA$isNonUSMonitor <- as.factor(ifelse((nonOECDFUA$numberMonitor - nonOECDFUA$numberUSEmbassyMonitors) > 0, 1, 0))
+nonOECDUC$isMonitor <- as.factor(ifelse((nonOECDUC$numberMonitor) > 0, 1, 0))
+nonOECDUC$isNonUSMonitor <- as.factor(ifelse((nonOECDUC$numberMonitor - nonOECDUC$numberUSEmbassyMonitors) > 0, 1, 0))
 
 # Try with a dummy IND and CHN
-nonOECDFUA$dummyCHN <- as.factor(ifelse(nonOECDFUA$CTR_MN_NM == "China", 1, 0))
-nonOECDFUA$dummyIND <- as.factor(ifelse(nonOECDFUA$CTR_MN_NM == "India", 1, 0))
+nonOECDUC$dummyCHN <- as.factor(ifelse(nonOECDUC$CTR_MN_NM == "China", 1, 0))
+nonOECDUC$dummyIND <- as.factor(ifelse(nonOECDUC$CTR_MN_NM == "India", 1, 0))
 
 # Below we sub-sample IND and CHN because they make up the whole dataset otherwise
 # Step 1: Identify the number of rows of the third most present label
-label_counts <- nonOECDFUA %>%
+label_counts <- nonOECDUC %>%
   count(CTR_MN_NM) %>%
   arrange(desc(n))
 
@@ -42,66 +42,66 @@ target_rows <- label_counts$n[3]
 
 # Subsample for "India" and "China"
 # Step 2: Adjust the rows for "India"
-df_india_adjusted <- nonOECDFUA %>%
+df_india_adjusted <- nonOECDUC %>%
   filter(CTR_MN_NM == "India") %>%
   sample_n(min(n(), target_rows))
 
 # Step 2: Adjust the rows for "China"
-df_china_adjusted <- nonOECDFUA %>%
+df_china_adjusted <- nonOECDUC %>%
   filter(CTR_MN_NM == "China") %>%
   sample_n(min(n(), target_rows))
 
 # Combine adjusted "India" and "China" with other labels
-nonOECDFUA_adjusted <- nonOECDFUA %>%
+nonOECDUC_adjusted <- nonOECDUC %>%
   filter(!CTR_MN_NM %in% c("India", "China")) %>%
   bind_rows(df_india_adjusted, df_china_adjusted)
 
-write.csv(nonOECDFUA_adjusted %>% select(ID_HDC_G0),
-          "outputData/FUA_nsf_merged_monitors_subset.csv",
+write.csv(nonOECDUC_adjusted %>% select(ID_HDC_G0),
+          "outputData/UC_nsf_merged_monitors_subset.csv",
           row.names = F) # save for consistency in future plots
 
-write.csv(nonOECDFUA %>% select(ID_HDC_G0),
-          "outputData/FUA_nsf_merged_monitors_nonOECD.csv",
+write.csv(nonOECDUC %>% select(ID_HDC_G0),
+          "outputData/UC_nsf_merged_monitors_nonOECD.csv",
           row.names = F) # save for consistency in future plots
 
 # Number of cities with / without monitor: 1365 / 9741
-df <- nonOECDFUA %>%
+df <- nonOECDUC %>%
   group_by(isMonitor) %>%
   summarize(nb = n())
 
 # Number of cities with / just US embassy monitor: 13
-nonOECDFUA$isUSMonitor <- as.factor(ifelse((nonOECDFUA$numberUSEmbassyMonitors) > 0, 1, 0))
-nonOECDFUA$isOnlyUSMonitor <- as.factor(ifelse((nonOECDFUA$isMonitor == 1 & ((as.numeric(nonOECDFUA$numberMonitors) - as.numeric(nonOECDFUA$numberUSEmbassyMonitors)) == 0)), 1, 0))
+nonOECDUC$isUSMonitor <- as.factor(ifelse((nonOECDUC$numberUSEmbassyMonitors) > 0, 1, 0))
+nonOECDUC$isOnlyUSMonitor <- as.factor(ifelse((nonOECDUC$isMonitor == 1 & ((as.numeric(nonOECDUC$numberMonitors) - as.numeric(nonOECDUC$numberUSEmbassyMonitors)) == 0)), 1, 0))
 
-df <- nonOECDFUA %>%
+df <- nonOECDUC %>%
   group_by(isOnlyUSMonitor) %>%
   summarize(nb = n())
 
 # Number of cities adjusted: 774 / 6332
-df <- nonOECDFUA_adjusted %>%
+df <- nonOECDUC_adjusted %>%
   group_by(isNonUSMonitor) %>%
   summarize(nb = n())
 
 
 # Number of reference grade monitors in cities of LMIC: 3171
-df <- nonOECDFUA %>%
+df <- nonOECDUC %>%
   group_by(isNonUSMonitor) %>%
   summarize(sum = sum(numberRefMonitors))
 
 
 # Now adjusted for IND and CHN: 1322
-df <- nonOECDFUA_adjusted %>%
+df <- nonOECDUC_adjusted %>%
   group_by(isNonUSMonitor) %>%
   summarize(sum = sum(numberRefMonitors))
 
 # Resulting in number of monitors just in IND and CHN: 370 and 2108
-df <- nonOECDFUA %>%
+df <- nonOECDUC %>%
   filter(CTR_MN_ISO %in% c("IND")) %>% 
   group_by(isNonUSMonitor) %>%
   summarize(sum = sum(numberRefMonitors))
 df
 
-df <- nonOECDFUA %>%
+df <- nonOECDUC %>%
   filter(CTR_MN_ISO %in% c("CHN")) %>% 
   group_by(isNonUSMonitor) %>%
   summarize(sum = sum(numberRefMonitors))
@@ -111,9 +111,9 @@ df
 
 ## without adjusting 
 
-nonOECDFUA$conflict_cumulative_intensity_22_num <- as.numeric(ifelse(nonOECDFUA$conflict_cumulative_intensity_22 == "war", 1,0))
+nonOECDUC$conflict_cumulative_intensity_22_num <- as.numeric(ifelse(nonOECDUC$conflict_cumulative_intensity_22 == "war", 1,0))
 
-nonOECDFUA$GDP15_SMpc <- nonOECDFUA$GDP15_SM/nonOECDFUA$P15
+nonOECDUC$GDP15_SMpc <- nonOECDUC$GDP15_SM/nonOECDUC$P15
 
 # List of variables to test
 variables <- c("GDP15_SMpc", "pm25VanD20002016",
@@ -152,7 +152,7 @@ perform_tests <- function(data, var) {
 }
 
 # Apply the tests to each variable
-test_results <- lapply(variables, function(var) perform_tests(nonOECDFUA, var))
+test_results <- lapply(variables, function(var) perform_tests(nonOECDUC, var))
 
 # Print the results
 for (i in seq_along(variables)) {
@@ -181,12 +181,12 @@ for (i in seq_along(variables)) {
 
 # now test with democracy x pollution (not sure what test to do)
 # probably subset the data for democracies and non democracies and run the test
-nonDem <- subset(nonOECDFUA, vdem_bin == "non-democracy")
+nonDem <- subset(nonOECDUC, vdem_bin == "non-democracy")
 
 t.test(subset(nonDem, isNonUSMonitor == 1)$pm25VanD20002016, subset(nonDem, isNonUSMonitor == 0)$pm25VanD20002016)
 wilcox.test(subset(nonDem, isNonUSMonitor == 1)$pm25VanD20002016, subset(nonDem, isNonUSMonitor == 0)$pm25VanD20002016)
 
-dem <- subset(nonOECDFUA, vdem_bin == "democracy")
+dem <- subset(nonOECDUC, vdem_bin == "democracy")
 
 t.test(subset(dem, isNonUSMonitor == 1)$pm25VanD20002016, subset(dem, isNonUSMonitor == 0)$pm25VanD20002016)
 wilcox.test(subset(dem, isNonUSMonitor == 1)$pm25VanD20002016, subset(dem, isNonUSMonitor == 0)$pm25VanD20002016)
@@ -194,9 +194,9 @@ wilcox.test(subset(dem, isNonUSMonitor == 1)$pm25VanD20002016, subset(dem, isNon
 
 ## adjusting 
 
-nonOECDFUA_adjusted$conflict_cumulative_intensity_22_num <- as.numeric(ifelse(nonOECDFUA_adjusted$conflict_cumulative_intensity_22 == "war", 1,0))
+nonOECDUC_adjusted$conflict_cumulative_intensity_22_num <- as.numeric(ifelse(nonOECDUC_adjusted$conflict_cumulative_intensity_22 == "war", 1,0))
 
-nonOECDFUA_adjusted$GDP15_SMpc <- nonOECDFUA_adjusted$GDP15_SM/nonOECDFUA_adjusted$P15
+nonOECDUC_adjusted$GDP15_SMpc <- nonOECDUC_adjusted$GDP15_SM/nonOECDUC_adjusted$P15
 
 # List of variables to test
 variables <- c("GDP15_SMpc", "pm25VanD20002016",
@@ -236,7 +236,7 @@ perform_tests <- function(data, var) {
 }
 
 # Apply the tests to each variable
-test_results <- lapply(variables, function(var) perform_tests(nonOECDFUA_adjusted, var))
+test_results <- lapply(variables, function(var) perform_tests(nonOECDUC_adjusted, var))
 
 # Print the results
 for (i in seq_along(variables)) {
@@ -304,7 +304,7 @@ perform_tests <- function(data, var) {
 }
 
 # Apply the tests to each variable
-test_results <- lapply(variables, function(var) perform_tests(nonOECDFUA_adjusted, var))
+test_results <- lapply(variables, function(var) perform_tests(nonOECDUC_adjusted, var))
 
 # Print the results
 for (i in seq_along(variables)) {
@@ -316,31 +316,31 @@ for (i in seq_along(variables)) {
 
 ## for getting the effect size:
 
-permTS(nonOECDFUA_adjusted %>% 
+permTS(nonOECDUC_adjusted %>% 
          filter(isNonUSMonitor == 0) %>%
          mutate(GDP15_SMpcLog = log(GDP15_SMpc)) %>% 
          pull(GDP15_SMpcLog),
-       nonOECDFUA_adjusted %>% 
+       nonOECDUC_adjusted %>% 
          filter(isNonUSMonitor == 1) %>% 
          mutate(GDP15_SMpcLog = log(GDP15_SMpc)) %>% 
          pull(GDP15_SMpcLog)
        , method = "exact.mc", control = permControl(nmc = 1000))
 
-permTS(nonOECDFUA_adjusted %>% 
+permTS(nonOECDUC_adjusted %>% 
          filter(isNonUSMonitor == 0) %>%
          pull(mean_edi) %>%
          na.omit(),
-       nonOECDFUA_adjusted %>% 
+       nonOECDUC_adjusted %>% 
          filter(isNonUSMonitor == 1) %>% 
          pull(mean_edi) %>%
          na.omit()
        , method = "exact.mc", control = permControl(nmc = 1000))
 
-permTS(nonOECDFUA_adjusted %>% 
+permTS(nonOECDUC_adjusted %>% 
          filter(isNonUSMonitor == 0) %>%
          filter(!is.na(pm25VanD20002016)) %>%
          pull(pm25VanD20002016),
-       nonOECDFUA_adjusted %>% 
+       nonOECDUC_adjusted %>% 
          filter(isNonUSMonitor == 1) %>% 
          filter(!is.na(pm25VanD20002016)) %>%
          pull(pm25VanD20002016)
@@ -348,15 +348,15 @@ permTS(nonOECDFUA_adjusted %>%
 
 
 ##########
-permTS(as.numeric(nonOECDFUA_adjusted %>% filter(vdem_bin == "non-democracy") %>% pull(pm25VanD20002016) %>% na.omit()), as.numeric(nonOECDFUA_adjusted %>% filter(vdem_bin == "democracy") %>% pull(pm25VanD20002016) %>% na.omit()), method = "exact.mc", control = permControl(nmc = 1000))
+permTS(as.numeric(nonOECDUC_adjusted %>% filter(vdem_bin == "non-democracy") %>% pull(pm25VanD20002016) %>% na.omit()), as.numeric(nonOECDUC_adjusted %>% filter(vdem_bin == "democracy") %>% pull(pm25VanD20002016) %>% na.omit()), method = "exact.mc", control = permControl(nmc = 1000))
 
-nonDem_adj <- subset(nonOECDFUA_adjusted, vdem_bin == "non-democracy")
+nonDem_adj <- subset(nonOECDUC_adjusted, vdem_bin == "non-democracy")
 
 # t.test(subset(nonDem_adj, isNonUSMonitor == 1)$pm25VanD20002016, subset(nonDem_adj, isNonUSMonitor == 0)$pm25VanD20002016)
 # wilcox.test(subset(nonDem_adj, isNonUSMonitor == 1)$pm25VanD20002016, subset(nonDem_adj, isNonUSMonitor == 0)$pm25VanD20002016)
 permTS(as.numeric(nonDem_adj %>% filter(isNonUSMonitor == 1) %>% pull(pm25VanD20002016) %>% na.omit()), as.numeric(nonDem_adj %>% filter(isNonUSMonitor == 0) %>% pull(pm25VanD20002016) %>% na.omit()), method = "exact.mc", control = permControl(nmc = 1000))
 
-dem_adj <- subset(nonOECDFUA_adjusted, vdem_bin == "democracy")
+dem_adj <- subset(nonOECDUC_adjusted, vdem_bin == "democracy")
 
 # t.test(subset(dem_adj, isNonUSMonitor == 1)$pm25VanD20002016, subset(dem_adj, isNonUSMonitor == 0)$pm25VanD20002016)
 # wilcox.test(subset(dem_adj, isNonUSMonitor == 1)$pm25VanD20002016, subset(dem_adj, isNonUSMonitor == 0)$pm25VanD20002016)
@@ -374,7 +374,7 @@ library(tidyverse)
 library(tricolore)
 library(terra)
 
-# First Figure is a map of points in FUAs for different databases
+# First Figure is a map of points in UCs for different databases
 
 "%ni%" = Negate("%in%")
 
@@ -384,21 +384,21 @@ data3 <- read.csv('outputData/mergedMonitors2_final.csv', sep = ',', allowEscape
 data3Sub <- subset(data3, !is.na(longitude))
 data3Sub_sf <- st_as_sf(data3Sub, coords = c("longitude", "latitude"), crs = 4326)
 
-#load list of FUAs to keep
-df_subset_fua <- read.csv('outputData/FUA_nsf_merged_monitors_subset.csv', sep = ',', allowEscapes = T) 
+#load list of UCs to keep
+df_subset_uc <- read.csv('outputData/UC_nsf_merged_monitors_subset.csv', sep = ',', allowEscapes = T) 
 
-df_nonOECD_fua <- read.csv('outputData/FUA_nsf_merged_monitors_nonOECD.csv', sep = ',', allowEscapes = T) 
+df_nonOECD_uc <- read.csv('outputData/UC_nsf_merged_monitors_nonOECD.csv', sep = ',', allowEscapes = T) 
 
-listFUA <- unique(df_subset_fua$ID_HDC_G0)
-listFUA_nonOECD <- unique(df_nonOECD_fua$ID_HDC_G0)
+listUC <- unique(df_subset_uc$ID_HDC_G0)
+listUC_nonOECD <- unique(df_nonOECD_uc$ID_HDC_G0)
 
-FUAs_sp <- st_read("data/FUA_fixed_geom.gpkg") # spatially explicit FUAs
+UCs_sp <- st_read("data/UC_fixed_geom.gpkg") # spatially explicit UCs
 
-listFUA_nonOECD <- unique(df_nonOECD_fua$ID_HDC_G0)
+listUC_nonOECD <- unique(df_nonOECD_uc$ID_HDC_G0)
 
-FUAs_nonOECD <- subset(FUAs_sp, ID_HDC_G0 %in% listFUA_nonOECD)
+UCs_nonOECD <- subset(UCs_sp, ID_HDC_G0 %in% listUC_nonOECD)
 
-points_within_fuas <- st_join(data3Sub_sf, FUAs_nonOECD, join = st_intersects) %>% subset(., !is.na(ID_HDC_G0))
+points_within_ucs <- st_join(data3Sub_sf, UCs_nonOECD, join = st_intersects) %>% subset(., !is.na(ID_HDC_G0))
 
 # now taking from the niceMaps code
 
@@ -459,7 +459,7 @@ category_colors <- c(
   "None" = "black"
 )
 
-data3Sub <- points_within_fuas
+data3Sub <- points_within_ucs
 
 # Apply color function to each row
 data3Sub$color <- mapply(get_color, data3Sub$occurencePurpleAir, data3Sub$occurenceWAQI, data3Sub$occurenceOpenAQ)
@@ -523,7 +523,7 @@ p <- ggplot(data3Sub, aes(x = category, fill = category)) +
   ) +
   theme(axis.text.x = element_text(angle = 45, hjust = 1))
 
-ggsave(plot = p, filename = paste('plotsMain/nbMonitorsDatabasesinFua.png', sep = ""),
+ggsave(plot = p, filename = paste('plotsMain/nbMonitorsDatabasesinUC.png', sep = ""),
        dpi=600, width = 12, height = 8, units='cm')
 
 # Reproject the data to the Mollweide projection using st_transform()
@@ -582,7 +582,7 @@ map_plot <- ggplot() +
 
 map_plot
 
-ggsave(plot = map_plot, filename = paste('plotsMain/monitorsFuaPoints.png', sep = ""),
+ggsave(plot = map_plot, filename = paste('plotsMain/monitorsUCPoints.png', sep = ""),
        dpi=600, width = 18, height = 12, units='cm')
 
 
@@ -603,7 +603,7 @@ map_plot <- ggplot() +
 
 map_plot
 
-ggsave(plot = map_plot, filename = paste("plotsExtra/maps/supplementaryFigure8.png", sep = ""),
+ggsave(plot = map_plot, filename = paste("plots/maps/supplementaryFigure7.png", sep = ""),
        dpi=600, width = 18, height = 12, units='cm')
 
 mollPointdf$plotType <- ifelse(mollPointdf$type == "Sensor", "Sensor", "Reference Grade")
@@ -619,7 +619,7 @@ p <- ggplot(mollPointdf, aes(x = plotType, fill = plotType)) +
 
 p
 
-ggsave(plot = p, filename = paste("plotsExtra/maps/supplementaryFigure8legend.png", sep = ""),
+ggsave(plot = p, filename = paste("plots/maps/supplementaryFigure7legend.png", sep = ""),
        dpi=600, width = 8, height = 10, units='cm')
 
 ##### choropleth map at the country level ##### ##### ##### ##### ##### ##### 
@@ -716,7 +716,7 @@ library(grid)
 grid.newpage()
 grid.draw(legend_grob)
 
-ggsave(plot = legend_grob, filename = paste('plotsExtra/maps/countriesMonitors_legend3.png', sep = ""),
+ggsave(plot = legend_grob, filename = paste('plots/maps/countriesMonitors_legend3.png', sep = ""),
        dpi=600, width = 12, height = 10, units='cm')
 
 
@@ -741,10 +741,10 @@ map_plot <- ggplot() +
 
 plot(map_plot)
 
-ggsave(plot = map_plot, filename = paste('plotsExtra/maps/countriesMonitors.png', sep = ""),
+ggsave(plot = map_plot, filename = paste('plots/maps/countriesMonitors.png', sep = ""),
        dpi=600, width = 18, height = 12, units='cm')
 
-########## Now we remove points that don't fall in FUAs Supplementary Figure 7 ########## ########## ########## 
+########## Now we remove points that don't fall in UCs Supplementary Figure 7 ########## ########## ########## 
 
 "%ni%" = Negate("%in%")
 
@@ -753,26 +753,26 @@ data3 <- read.csv('outputData/mergedMonitors2_final.csv', sep = ',', allowEscape
 
 data3Sub <- subset(data3, !is.na(longitude))
 
-#load list of FUAs to keep
-df_nonOECD_fua <- read.csv('outputData/FUA_nsf_merged_monitors_nonOECD.csv', sep = ',', allowEscapes = T) 
+#load list of UCs to keep
+df_nonOECD_uc <- read.csv('outputData/UC_nsf_merged_monitors_nonOECD.csv', sep = ',', allowEscapes = T) 
 
-listFUA_nonOECD <- unique(df_nonOECD_fua$ID_HDC_G0)
+listUC_nonOECD <- unique(df_nonOECD_uc$ID_HDC_G0)
 
-FUAs_sp <- st_read("data/FUA_fixed_geom.gpkg") # spatially explicit FUAs
+UCs_sp <- st_read("data/UC_fixed_geom.gpkg") # spatially explicit UCs
 
-listFUA_nonOECD <- unique(df_nonOECD_fua$ID_HDC_G0)
+listUC_nonOECD <- unique(df_nonOECD_uc$ID_HDC_G0)
 
-FUAs_nonOECD <- subset(FUAs_sp, ID_HDC_G0 %in% listFUA_nonOECD)
+UCs_nonOECD <- subset(UCs_sp, ID_HDC_G0 %in% listUC_nonOECD)
 
 data3Sub_sf <- st_as_sf(data3Sub, coords = c("longitude", "latitude"), crs = 4326)
 
 data3Sub_terra <- vect(data3Sub, geom=c("longitude", "latitude"), crs="+proj=longlat +datum=WGS84")
 
-FUAs_nonOECD_terra <- vect(FUAs_nonOECD)
+UCs_nonOECD_terra <- vect(UCs_nonOECD)
 
-# points_within_fuas_ST <- st_join(data3Sub_sf, FUAs_nonOECD, join = st_intersects) %>% subset(., !is.na(ID_HDC_G0))
+# points_within_ucs_ST <- st_join(data3Sub_sf, UCs_nonOECD, join = st_intersects) %>% subset(., !is.na(ID_HDC_G0))
 
-points_within_fuas_terra <- terra::intersect(data3Sub_terra, FUAs_nonOECD_terra) 
+points_within_ucs_terra <- terra::intersect(data3Sub_terra, UCs_nonOECD_terra) 
 
 extDF <- data.frame(xmin = -180, xmax = 180, ymin = -72, ymax = 70)
 ext <- c(xmin = -180, xmax = 180, ymin = -72, ymax = 70)
@@ -796,13 +796,13 @@ world_countriesterra <- vect(world_countries_subset)
 
 world_countriesterra$type <- NULL
 
-# data3Sub_chloro <- vect(points_within_fuas, geom=c("longitude", "latitude"), crs="+proj=longlat +datum=WGS84")
+# data3Sub_chloro <- vect(points_within_ucs, geom=c("longitude", "latitude"), crs="+proj=longlat +datum=WGS84")
 
 # Define the buffer distance (e.g., 500 meters)
 buffer_distance <- 500  # Adjust this value based on your needs
 
 # Create a buffer around the points
-buffered_points <- buffer(points_within_fuas_terra, width = buffer_distance)
+buffered_points <- buffer(points_within_ucs_terra, width = buffer_distance)
 
 # Perform a spatial join to find which country each point falls into
 points_in_countries <- terra::intersect(buffered_points, world_countriesterra)
@@ -865,7 +865,7 @@ grid.draw(key_plot)
 
 key_plot <- key_plot+theme(axis.title = element_text(size = 11))  # Adjust the size value as needed
 
-ggsave(plot = key_plot, filename = paste('plotsExtra/maps/countriesMonitorsinFUA_legend2.png', sep = ""),
+ggsave(plot = key_plot, filename = paste('plots/maps/countriesMonitorsinUC_legend2.png', sep = ""),
        dpi=600, width = 13, height = 10, units='cm')
 
 
@@ -890,7 +890,7 @@ map_plot <- ggplot() +
 
 plot(map_plot)
 
-ggsave(plot = map_plot, filename = paste('plotsExtra/maps/countriesMonitorsinFUA.png', sep = ""),
+ggsave(plot = map_plot, filename = paste('plots/maps/countriesMonitorsinUC.png', sep = ""),
        dpi=600, width = 18, height = 12, units='cm')
 
 ```
@@ -904,37 +904,37 @@ library(tidyverse)
 
 "%ni%" = Negate("%in%")
 
-#load FUA dataset (filter after subset)
+#load UC dataset (filter after subset)
 
-FUAs <- read.csv('outputData/FUA_nsf_merged_monitorsOpenAQWAQI.csv', sep = ',', allowEscapes = T)
+UCs <- read.csv('outputData/UC_nsf_merged_monitorsOpenAQWAQI.csv', sep = ',', allowEscapes = T)
 
-FUA_gridded <- read.csv("outputData/FUA_nsf_monitors_mergedGrid.csv")
-FUAs <- merge(FUAs, FUA_gridded, by = "ID_HDC_G0")
+UC_gridded <- read.csv("outputData/UC_nsf_monitors_mergedGrid.csv")
+UCs <- merge(UCs, UC_gridded, by = "ID_HDC_G0")
 
-#load list of FUAs to keep
-df_subset_fua <- read.csv('outputData/FUA_nsf_merged_monitors_subset.csv', sep = ',', allowEscapes = T) 
+#load list of UCs to keep
+df_subset_uc <- read.csv('outputData/UC_nsf_merged_monitors_subset.csv', sep = ',', allowEscapes = T) 
 
-df_nonOECD_fua <- read.csv('outputData/FUA_nsf_merged_monitors_nonOECD.csv', sep = ',', allowEscapes = T) 
+df_nonOECD_uc <- read.csv('outputData/UC_nsf_merged_monitors_nonOECD.csv', sep = ',', allowEscapes = T) 
 
-listFUA <- unique(df_subset_fua$ID_HDC_G0)
-listFUA_nonOECD <- unique(df_nonOECD_fua$ID_HDC_G0)
+listUC <- unique(df_subset_uc$ID_HDC_G0)
+listUC_nonOECD <- unique(df_nonOECD_uc$ID_HDC_G0)
 
-FUAs$INDCHNOTH <- factor(ifelse(FUAs$CTR_MN_NM == "India", "India",
-                         ifelse(FUAs$CTR_MN_NM == "China", "China",
-                                ifelse(is.na(FUAs$CTR_MN_NM), NA, "Other"))), levels = c("Other", "India", "China"))
+UCs$INDCHNOTH <- factor(ifelse(UCs$CTR_MN_NM == "India", "India",
+                         ifelse(UCs$CTR_MN_NM == "China", "China",
+                                ifelse(is.na(UCs$CTR_MN_NM), NA, "Other"))), levels = c("Other", "India", "China"))
 
-FUAs$numberMonitorsNonUS <- FUAs$numberMonitors - FUAs$numberUSEmbassyMonitors
+UCs$numberMonitorsNonUS <- UCs$numberMonitors - UCs$numberUSEmbassyMonitors
 
-FUAs$isMonitorNonUSE <- ifelse(FUAs$numberMonitorsNonUS > 0, "Yes", "No")
+UCs$isMonitorNonUSE <- ifelse(UCs$numberMonitorsNonUS > 0, "Yes", "No")
 
-FUAs <- subset(FUAs, log(GDP15_SM+1) != 0)
+UCs <- subset(UCs, log(GDP15_SM+1) != 0)
 
-FUAs_subset <- subset(FUAs, ID_HDC_G0 %in% listFUA)
-FUAs_nonOECD <- subset(FUAs, ID_HDC_G0 %in% listFUA_nonOECD)
+UCs_subset <- subset(UCs, ID_HDC_G0 %in% listUC)
+UCs_nonOECD <- subset(UCs, ID_HDC_G0 %in% listUC_nonOECD)
 
-FUAs_subset$GDP15_SM_PC <- FUAs_subset$GDP15_SM/FUAs_subset$P15
+UCs_subset$GDP15_SM_PC <- UCs_subset$GDP15_SM/UCs_subset$P15
 
-lines_df <- FUAs_subset %>% 
+lines_df <- UCs_subset %>% 
   group_by(isMonitorNonUSE) %>% 
   summarize(meanGDP = mean(log(GDP15_SM+1), na.rm=T),
             meanPop = mean(log(P15), na.rm=T),
@@ -946,7 +946,7 @@ lines_df <- FUAs_subset %>%
             medianDemo = median(mean_edi, na.rm=T)
             )
 
-p <- FUAs_subset %>% ggplot(aes(x = log(GDP15_SM+1), fill = isMonitorNonUSE))+
+p <- UCs_subset %>% ggplot(aes(x = log(GDP15_SM+1), fill = isMonitorNonUSE))+
   geom_histogram(bins = 50)+
   geom_vline(data = lines_df, aes(xintercept = meanGDP, color = isMonitorNonUSE), linetype = "dashed", size = 1) +
   geom_text(data = lines_df, aes(x = meanGDP, y = 700, label = round(meanGDP, 1), color = isMonitorNonUSE), vjust = -0.5, hjust = 1.3) +
@@ -958,11 +958,11 @@ p <- FUAs_subset %>% ggplot(aes(x = log(GDP15_SM+1), fill = isMonitorNonUSE))+
   guides(color = "none") +  # This line removes the color legend
   theme_minimal()
 
-ggsave(plot = p, filename = paste('plots/FUAsGDPAQM.png', sep = ""),
+ggsave(plot = p, filename = paste('plots/UCsGDPAQM.png', sep = ""),
        dpi=600, width = 18, height = 15, units='cm')
 
 
-p <- FUAs_subset %>% ggplot(aes(x = log(P15), fill = isMonitorNonUSE))+
+p <- UCs_subset %>% ggplot(aes(x = log(P15), fill = isMonitorNonUSE))+
   geom_histogram(bins = 50)+
   geom_vline(data = lines_df, aes(xintercept = meanPop, color = isMonitorNonUSE), linetype = "dashed", size = 1) +
   geom_text(data = lines_df, aes(x = meanPop, y = 700, label = round(meanPop, 1), color = isMonitorNonUSE), vjust = -0.5, hjust = -0.2) +
@@ -974,11 +974,11 @@ p <- FUAs_subset %>% ggplot(aes(x = log(P15), fill = isMonitorNonUSE))+
   guides(color = "none") +  # This line removes the color legend
   theme_minimal()
 
-ggsave(plot = p, filename = paste('plots/FUAsPopAQM.png', sep = ""),
+ggsave(plot = p, filename = paste('plots/UCsPopAQM.png', sep = ""),
        dpi=600, width = 12, height = 8, units='cm')
 
 
-p <- FUAs_subset %>% ggplot(aes(x = mean_edi, fill = isMonitorNonUSE))+
+p <- UCs_subset %>% ggplot(aes(x = mean_edi, fill = isMonitorNonUSE))+
   geom_histogram(bins = 15)+
   geom_vline(data = lines_df, aes(xintercept = meanDemo, color = isMonitorNonUSE), linetype = "dashed", size = 1) +
   geom_text(data = lines_df, aes(x = meanDemo, y = 900, label = round(meanDemo, 1), color = isMonitorNonUSE), vjust = -0.5, hjust = -0.2) +
@@ -990,12 +990,12 @@ p <- FUAs_subset %>% ggplot(aes(x = mean_edi, fill = isMonitorNonUSE))+
   guides(color = "none") +  # This line removes the color legend
   theme_minimal()
 
-ggsave(plot = p, filename = paste('plotsMain/FUAsDemoAQM.png', sep = ""),
+ggsave(plot = p, filename = paste('plotsMain/UCsDemoAQM.png', sep = ""),
        dpi=600, width = 12, height = 8, units='cm')
 
 
 
-p <- FUAs_subset %>% ggplot(aes(x = log(GDP15_SM_PC), fill = isMonitorNonUSE))+
+p <- UCs_subset %>% ggplot(aes(x = log(GDP15_SM_PC), fill = isMonitorNonUSE))+
   geom_histogram(bins = 50)+
   geom_vline(data = lines_df, aes(xintercept = meanGDPpc, color = isMonitorNonUSE), linetype = "dashed", size = 1) +
   geom_text(data = lines_df, aes(x = meanGDPpc, y = 700, label = round(meanGDPpc, 1), color = isMonitorNonUSE), vjust = c(-0.5), hjust = c(1.3, -0.3)) +
@@ -1007,15 +1007,15 @@ p <- FUAs_subset %>% ggplot(aes(x = log(GDP15_SM_PC), fill = isMonitorNonUSE))+
   guides(color = "none") +  # This line removes the color legend
   theme_minimal()
 
-ggsave(plot = p, filename = paste('plotsMain/FUAsGDPpcAQM.png', sep = ""),
+ggsave(plot = p, filename = paste('plotsMain/UCsGDPpcAQM.png', sep = ""),
        dpi=600, width = 12, height = 8, units='cm')
 
 
-lines_df <- FUAs_nonOECD %>% 
+lines_df <- UCs_nonOECD %>% 
   group_by(isMonitorNonUSE, vdem_bin) %>% 
   summarize(meanPollution = mean(pm25VanD20002016, na.rm=T))
 
-p <- FUAs_nonOECD %>% ggplot(aes(x = pm25VanD20002016, fill = isMonitorNonUSE))+
+p <- UCs_nonOECD %>% ggplot(aes(x = pm25VanD20002016, fill = isMonitorNonUSE))+
   geom_histogram(bins = 80)+
   geom_vline(data = lines_df, aes(xintercept = meanPollution, color = isMonitorNonUSE), linetype = "dashed", size = 1) +
   geom_text(data = lines_df, aes(x = meanPollution, y = 170,
@@ -1035,15 +1035,15 @@ p <- FUAs_nonOECD %>% ggplot(aes(x = pm25VanD20002016, fill = isMonitorNonUSE))+
 
 p
 
-ggsave(plot = p, filename = paste('plots/FUAsDemPollutionAQM_fullDF.png', sep = ""),
+ggsave(plot = p, filename = paste('plots/UCsDemPollutionAQM_fullDF.png', sep = ""),
        dpi=600, width = 18, height = 20, units='cm')
 
 
-lines_df <- FUAs_subset %>% 
+lines_df <- UCs_subset %>% 
   group_by(isMonitorNonUSE, vdem_bin) %>% 
   summarize(meanPollution = mean(pm25VanD20002016, na.rm=T))
 
-p <- FUAs_subset %>% ggplot(aes(x = pm25VanD20002016, fill = isMonitorNonUSE))+
+p <- UCs_subset %>% ggplot(aes(x = pm25VanD20002016, fill = isMonitorNonUSE))+
   geom_histogram(bins = 80)+
   geom_vline(data = lines_df, aes(xintercept = meanPollution, color = isMonitorNonUSE), linetype = "dashed", size = 1) +
   geom_text(data = lines_df, aes(x = meanPollution, y = 170,
@@ -1065,11 +1065,11 @@ p
 
 
 # Calculate the overall range of the pm25VanD20002016 variable
-x_range <- range(FUAs_subset$pm25VanD20002016, na.rm = TRUE)
+x_range <- range(UCs_subset$pm25VanD20002016, na.rm = TRUE)
 
 # Split the dataset into two subsets
-democracy_data <- FUAs_subset %>% filter(vdem_bin == "democracy")
-non_democracy_data <- FUAs_subset %>% filter(vdem_bin == "non-democracy")
+democracy_data <- UCs_subset %>% filter(vdem_bin == "democracy")
+non_democracy_data <- UCs_subset %>% filter(vdem_bin == "non-democracy")
 
 # Calculate mean pollution for democracy and non-democracy separately
 lines_df_democracy <- democracy_data %>% 
@@ -1121,13 +1121,13 @@ print(p_democracy)
 print(p_non_democracy)
 
 
-ggsave(plot = p_democracy, filename = paste('plotsMain/FUAsDemPollutionAQM_subset_demo.png', sep = ""),
+ggsave(plot = p_democracy, filename = paste('plotsMain/UCsDemPollutionAQM_subset_demo.png', sep = ""),
        dpi=600, width = 12, height = 8, units='cm')
 
-ggsave(plot = p_non_democracy, filename = paste('plotsMain/FUAsDemPollutionAQM_subset_nonDemo.png', sep = ""),
+ggsave(plot = p_non_democracy, filename = paste('plotsMain/UCsDemPollutionAQM_subset_nonDemo.png', sep = ""),
        dpi=600, width = 12, height = 8, units='cm')
 
-p <- FUAs_nonOECD %>% ggplot(aes(x = pm25VanD20002016, fill = INDCHNOTH))+
+p <- UCs_nonOECD %>% ggplot(aes(x = pm25VanD20002016, fill = INDCHNOTH))+
   geom_histogram(alpha = 0.6, position="identity", bins = 70)+
   scale_fill_manual(values = c("#DDBEA8", "#246A73", "black"),
                     limits = c("India", "China", "Other"))+
@@ -1136,11 +1136,11 @@ p <- FUAs_nonOECD %>% ggplot(aes(x = pm25VanD20002016, fill = INDCHNOTH))+
 
 p
 
-ggsave(plot = p, filename = paste('plotsMain/FUAsPollutionINDCHNOTH.png', sep = ""),
+ggsave(plot = p, filename = paste('plotsMain/UCsPollutionINDCHNOTH.png', sep = ""),
        dpi=600, width = 12, height = 8, units='cm')
 
 
-country_FUAcounts <- FUAs_nonOECD %>%
+country_UCcounts <- UCs_nonOECD %>%
   group_by(CTR_MN_NM) %>%
   summarise(total_count = n(),
             count_with_condition = sum(numberMonitors > 1),
@@ -1153,7 +1153,7 @@ country_FUAcounts <- FUAs_nonOECD %>%
                             count_with_condition = "Yes", 
                             count_without_condition = "No"))
 
-p <- ggplot(country_FUAcounts, aes(x = reorder(CTR_MN_NM, -total_count), y = Count, fill = Condition)) +
+p <- ggplot(country_UCcounts, aes(x = reorder(CTR_MN_NM, -total_count), y = Count, fill = Condition)) +
   geom_bar(stat = "identity") +
   # geom_bar(stat = "identity", col = "black") +
   scale_fill_manual(values = c("Yes" = "#FED922", "No" = "#1D6B8F")) +
@@ -1164,11 +1164,11 @@ p <- ggplot(country_FUAcounts, aes(x = reorder(CTR_MN_NM, -total_count), y = Cou
   theme_minimal() +
   theme(axis.text.x = element_text(angle = 45, hjust = 1))
 
-ggsave(plot = p, filename = paste('plots/FUAnbCountry30_2.png', sep = ""),
+ggsave(plot = p, filename = paste('plots/UCnbCountry30_2.png', sep = ""),
        dpi=600, width = 12, height = 8, units='cm')
 
 
-country_FUAcounts <- FUAs_subset %>%
+country_UCcounts <- UCs_subset %>%
   group_by(CTR_MN_NM) %>%
   summarise(total_count = n(),
             count_with_condition = sum(numberMonitors > 1),
@@ -1181,7 +1181,7 @@ country_FUAcounts <- FUAs_subset %>%
                             count_with_condition = "Yes", 
                             count_without_condition = "No"))
 
-p <- ggplot(country_FUAcounts, aes(x = reorder(CTR_MN_NM, -total_count), y = Count, fill = Condition)) +
+p <- ggplot(country_UCcounts, aes(x = reorder(CTR_MN_NM, -total_count), y = Count, fill = Condition)) +
   # geom_bar(stat = "identity", col = "black") +
   geom_bar(stat = "identity") +
   scale_fill_manual(values = c("Yes" = "#FED922", "No" = "#1D6B8F")) +
@@ -1192,45 +1192,45 @@ p <- ggplot(country_FUAcounts, aes(x = reorder(CTR_MN_NM, -total_count), y = Cou
   theme_minimal() +
   theme(axis.text.x = element_text(angle = 45, hjust = 1))
 
-ggsave(plot = p, filename = paste('plots/FUAnbCountry30_subset_2.png', sep = ""),
+ggsave(plot = p, filename = paste('plots/UCnbCountry30_subset_2.png', sep = ""),
        dpi=600, width = 12, height = 8, units='cm')
 
-FUAs_sp <- st_read("data/FUA_fixed_geom.gpkg") # spatially explicit FUAs
+UCs_sp <- st_read("data/UC_fixed_geom.gpkg") # spatially explicit UCs
 
-listFUA_nonOECD <- unique(df_nonOECD_fua$ID_HDC_G0)
+listUC_nonOECD <- unique(df_nonOECD_uc$ID_HDC_G0)
 
-FUAs_nonOECD <- subset(FUAs_sp, ID_HDC_G0 %in% listFUA_nonOECD)
+UCs_nonOECD <- subset(UCs_sp, ID_HDC_G0 %in% listUC_nonOECD)
 
 data3 <- read.csv('outputData/mergedMonitors2_final.csv', sep = ',', allowEscapes = T)
 
 data3Sub <- subset(data3, !is.na(longitude))
 
-#load list of FUAs to keep
-df_nonOECD_fua <- read.csv('outputData/FUA_nsf_merged_monitors_nonOECD.csv', sep = ',', allowEscapes = T) 
+#load list of UCs to keep
+df_nonOECD_uc <- read.csv('outputData/UC_nsf_merged_monitors_nonOECD.csv', sep = ',', allowEscapes = T) 
 
-listFUA_nonOECD <- unique(df_nonOECD_fua$ID_HDC_G0)
+listUC_nonOECD <- unique(df_nonOECD_uc$ID_HDC_G0)
 
-FUAs_sp <- st_read("data/FUA_fixed_geom.gpkg") # spatially explicit FUAs
+UCs_sp <- st_read("data/UC_fixed_geom.gpkg") # spatially explicit UCs
 
-listFUA_nonOECD <- unique(df_nonOECD_fua$ID_HDC_G0)
+listUC_nonOECD <- unique(df_nonOECD_uc$ID_HDC_G0)
 
-FUAs_nonOECD <- subset(FUAs_sp, ID_HDC_G0 %in% listFUA_nonOECD)
+UCs_nonOECD <- subset(UCs_sp, ID_HDC_G0 %in% listUC_nonOECD)
 
 data3Sub_sf <- st_as_sf(data3Sub, coords = c("longitude", "latitude"), crs = 4326)
 
-points_within_fuas <- st_join(data3Sub_sf, FUAs_nonOECD, join = st_intersects) %>% subset(., !is.na(ID_HDC_G0))
+points_within_ucs <- st_join(data3Sub_sf, UCs_nonOECD, join = st_intersects) %>% subset(., !is.na(ID_HDC_G0))
 
-points_within_fuas <- subset(points_within_fuas, type %in% c("Reference Grade", "Sensor"))
+points_within_ucs <- subset(points_within_ucs, type %in% c("Reference Grade", "Sensor"))
 
 # Calculate the total number of monitors for each country
-totalMonitorsPerCountry <- points_within_fuas %>%
+totalMonitorsPerCountry <- points_within_ucs %>%
   group_by(CTR_MN_NM) %>%
   summarise(totalMonitors = n(), .groups = 'drop') %>%
   arrange(desc(totalMonitors)) %>%
   slice_head(n = 30)
 
 # Filter the original dataset to include only the top 30 countries
-statsCountry <- points_within_fuas %>%
+statsCountry <- points_within_ucs %>%
   group_by(CTR_MN_NM, type) %>%
   summarise(numberMonitors = n(), .groups = 'drop') %>%
   filter(CTR_MN_NM %in% totalMonitorsPerCountry$CTR_MN_NM) %>%
@@ -1252,20 +1252,20 @@ ggsave(plot = p, filename = paste('plotsMain/nbMonitorsCountries30.png', sep = "
 
 # Graph weighted by pop
 
-totalMonitorsPerCountry <- points_within_fuas %>%
+totalMonitorsPerCountry <- points_within_ucs %>%
   group_by(CTR_MN_NM) %>%
   summarise(totalMonitors = n(),
             .groups = 'drop') %>%
   arrange(desc(totalMonitors)) %>%
   slice_head(n = 30)
 
-totalFUAPopPerCountry <- as.data.frame(FUAs_nonOECD) %>%
+totalUCPopPerCountry <- as.data.frame(UCs_nonOECD) %>%
   group_by(CTR_MN_NM) %>%
   summarise(totalPop = sum(P15),
             .groups = 'drop')
 
 # Filter the original dataset to include only the top 30 countries
-statsCountry <- points_within_fuas %>%
+statsCountry <- points_within_ucs %>%
   group_by(CTR_MN_NM, type) %>%
   summarise(numberMonitors = n(), .groups = 'drop') %>%
   filter(CTR_MN_NM %in% totalMonitorsPerCountry$CTR_MN_NM) %>%
@@ -1273,7 +1273,7 @@ statsCountry <- points_within_fuas %>%
   mutate(totalMonitors = sum(numberMonitors)) %>%
   ungroup()
 
-statsCountry <- merge(statsCountry, totalFUAPopPerCountry, by = "CTR_MN_NM")
+statsCountry <- merge(statsCountry, totalUCPopPerCountry, by = "CTR_MN_NM")
 
 statsCountry$weightedMonitoring <- (statsCountry$numberMonitors / statsCountry$totalPop) * 1000000
 statsCountry$weightedMonitoringTotal <- (statsCountry$totalMonitors / statsCountry$totalPop) * 1000000
@@ -1314,35 +1314,36 @@ set.seed(321)
 library(tidyverse)
 library(multiverse)
 library(perm)
+library(broom)
 
 "%ni%" = Negate("%in%")
 
-FUA_data <- read.csv("outputData/FUA_nsf_merged_monitorsOpenAQWAQI.csv")
+UC_data <- read.csv("outputData/UC_nsf_merged_monitorsOpenAQWAQI.csv")
 
-FUA_gridded <- read.csv("outputData/FUA_nsf_monitors_mergedGrid.csv")
+UC_gridded <- read.csv("outputData/UC_nsf_monitors_mergedGrid.csv")
 
-FUA_data <- merge(FUA_data, FUA_gridded, by = "ID_HDC_G0")
+UC_data <- merge(UC_data, UC_gridded, by = "ID_HDC_G0")
 
-nonOECDFUA <- subset(FUA_data, oecd != 'OECD')
-nonOECDFUA <- subset(nonOECDFUA, INCM_CMI %ni% c('HIC', 'Other') & !is.na(INCM_CMI)) # remove high income countries and NA
-nonOECDFUA <- subset(nonOECDFUA, !is.na(vdem_bin)) # here I subset the countries that are not in the vdem dataset
+nonOECDUC <- subset(UC_data, oecd != 'OECD')
+nonOECDUC <- subset(nonOECDUC, INCM_CMI %ni% c('HIC', 'Other') & !is.na(INCM_CMI)) # remove high income countries and NA
+nonOECDUC <- subset(nonOECDUC, !is.na(vdem_bin)) # here I subset the countries that are not in the vdem dataset
 
-nonOECDFUA$vdem_bin <- ifelse(nonOECDFUA$vdem_bin == "non-democracy", "0non-democracy",
-                                       ifelse(nonOECDFUA$vdem_bin == "democracy", "1democracy", NA))
+nonOECDUC$vdem_bin <- ifelse(nonOECDUC$vdem_bin == "non-democracy", "0non-democracy",
+                                       ifelse(nonOECDUC$vdem_bin == "democracy", "1democracy", NA))
 
-nonOECDFUA <- subset(nonOECDFUA, GDP15_SM != 0)
+nonOECDUC <- subset(nonOECDUC, GDP15_SM != 0)
 
-nonOECDFUA$GDP15_SMpc <- nonOECDFUA$GDP15_SM/nonOECDFUA$P15
+nonOECDUC$GDP15_SMpc <- nonOECDUC$GDP15_SM/nonOECDUC$P15
 
-nonOECDFUA$isMonitor <- as.factor(ifelse((nonOECDFUA$numberMonitor - nonOECDFUA$numberUSEmbassyMonitors) > 0, 1, 0))
+nonOECDUC$isMonitor <- as.factor(ifelse((nonOECDUC$numberMonitor - nonOECDUC$numberUSEmbassyMonitors) > 0, 1, 0))
 
 # add a dummy IND and CHN
-nonOECDFUA$dummyCHN <- as.factor(ifelse(nonOECDFUA$CTR_MN_NM == "China", 1, 0))
-nonOECDFUA$dummyIND <- as.factor(ifelse(nonOECDFUA$CTR_MN_NM == "India", 1, 0))
+nonOECDUC$dummyCHN <- as.factor(ifelse(nonOECDUC$CTR_MN_NM == "China", 1, 0))
+nonOECDUC$dummyIND <- as.factor(ifelse(nonOECDUC$CTR_MN_NM == "India", 1, 0))
 
 # Below we sub-sample IND and CHN because they make up the whole dataset otherwise
 # Step 1: Identify the number of rows of the third most present label
-label_counts <- nonOECDFUA %>%
+label_counts <- nonOECDUC %>%
   count(CTR_MN_NM) %>%
   arrange(desc(n))
 
@@ -1351,24 +1352,24 @@ target_rows <- label_counts$n[3]
 
 # Subsample for "India" and "China"
 # Step 2: Adjust the rows for "India"
-df_india_adjusted <- nonOECDFUA %>%
+df_india_adjusted <- nonOECDUC %>%
   filter(CTR_MN_NM == "India") %>%
   sample_n(min(n(), target_rows))
 
 # Step 2: Adjust the rows for "China"
-df_china_adjusted <- nonOECDFUA %>%
+df_china_adjusted <- nonOECDUC %>%
   filter(CTR_MN_NM == "China") %>%
   sample_n(min(n(), target_rows))
 
 # Combine adjusted "India" and "China" with other labels
-nonOECDFUA_adjusted <- nonOECDFUA %>%
+nonOECDUC_adjusted <- nonOECDUC %>%
   filter(!CTR_MN_NM %in% c("India", "China")) %>%
   bind_rows(df_india_adjusted, df_china_adjusted)
 
 
 ###### Figure 4 ######
 # Predicted Probabilities Plots #
-df_PP <- nonOECDFUA_adjusted
+df_PP <- nonOECDUC_adjusted
 df_PP$GDP15_SMpc <- log(df_PP$GDP15_SMpc+1)
 df_PP$P15 <- log(df_PP$P15)
 df_PP$conflict_cumulative_intensity_22 <- as.numeric(as.factor(df_PP$conflict_cumulative_intensity_22))-1
@@ -1506,8 +1507,6 @@ variables <- c("vdem_bin", "conflict_cumulative_intensity_22", "capital", "dummy
 all_predictions <- lapply(variables, function(var) {
   generate_predictions_binary(df_PP, fit, var)
 })
-
-
 
 # Perform the permutation test and compute summary statistics
 summary_statistics <- lapply(seq_along(all_predictions), function(i) {
@@ -1776,23 +1775,23 @@ ggsave("plotsMain/Figure4.png", arranged_plots, width = 11, height = 10)
 ##### Supplementary Figure 1 ##### 
 # Now we test robustness with reference grade / air sensor only and different subsets
 
-nonOECDFUA_rdy <- nonOECDFUA
-nonOECDFUA_rdy$GDP15_SMpc <- log(nonOECDFUA_rdy$GDP15_SMpc+1)
-nonOECDFUA_rdy$P15 <- log(nonOECDFUA_rdy$P15)
-nonOECDFUA_rdy$conflict_cumulative_intensity_22 <- as.numeric(as.factor(nonOECDFUA_rdy$conflict_cumulative_intensity_22))-1
-nonOECDFUA_rdy$vdem_bin <- as.numeric(as.factor(nonOECDFUA_rdy$vdem_bin))-1
-nonOECDFUA_rdy$capital <- as.numeric(as.factor(nonOECDFUA_rdy$capital))-1
-nonOECDFUA_rdy$dummyCHN <- as.numeric(as.factor(nonOECDFUA_rdy$dummyCHN))-1
-nonOECDFUA_rdy$dummyIND <- as.numeric(as.factor(nonOECDFUA_rdy$dummyIND))-1
+nonOECDUC_rdy <- nonOECDUC
+nonOECDUC_rdy$GDP15_SMpc <- log(nonOECDUC_rdy$GDP15_SMpc+1)
+nonOECDUC_rdy$P15 <- log(nonOECDUC_rdy$P15)
+nonOECDUC_rdy$conflict_cumulative_intensity_22 <- as.numeric(as.factor(nonOECDUC_rdy$conflict_cumulative_intensity_22))-1
+nonOECDUC_rdy$vdem_bin <- as.numeric(as.factor(nonOECDUC_rdy$vdem_bin))-1
+nonOECDUC_rdy$capital <- as.numeric(as.factor(nonOECDUC_rdy$capital))-1
+nonOECDUC_rdy$dummyCHN <- as.numeric(as.factor(nonOECDUC_rdy$dummyCHN))-1
+nonOECDUC_rdy$dummyIND <- as.numeric(as.factor(nonOECDUC_rdy$dummyIND))-1
 
-nonOECDFUA_adjusted_rdy <- nonOECDFUA_adjusted
-nonOECDFUA_adjusted_rdy$GDP15_SMpc <- log(nonOECDFUA_adjusted_rdy$GDP15_SMpc+1)
-nonOECDFUA_adjusted_rdy$P15 <- log(nonOECDFUA_adjusted_rdy$P15)
-nonOECDFUA_adjusted_rdy$conflict_cumulative_intensity_22 <- as.numeric(as.factor(nonOECDFUA_adjusted_rdy$conflict_cumulative_intensity_22))-1
-nonOECDFUA_adjusted_rdy$vdem_bin <- as.numeric(as.factor(nonOECDFUA_adjusted_rdy$vdem_bin))-1
-nonOECDFUA_adjusted_rdy$capital <- as.numeric(as.factor(nonOECDFUA_adjusted_rdy$capital))-1
-nonOECDFUA_adjusted_rdy$dummyCHN <- as.numeric(as.factor(nonOECDFUA_adjusted_rdy$dummyCHN))-1
-nonOECDFUA_adjusted_rdy$dummyIND <- as.numeric(as.factor(nonOECDFUA_adjusted_rdy$dummyIND))-1
+nonOECDUC_adjusted_rdy <- nonOECDUC_adjusted
+nonOECDUC_adjusted_rdy$GDP15_SMpc <- log(nonOECDUC_adjusted_rdy$GDP15_SMpc+1)
+nonOECDUC_adjusted_rdy$P15 <- log(nonOECDUC_adjusted_rdy$P15)
+nonOECDUC_adjusted_rdy$conflict_cumulative_intensity_22 <- as.numeric(as.factor(nonOECDUC_adjusted_rdy$conflict_cumulative_intensity_22))-1
+nonOECDUC_adjusted_rdy$vdem_bin <- as.numeric(as.factor(nonOECDUC_adjusted_rdy$vdem_bin))-1
+nonOECDUC_adjusted_rdy$capital <- as.numeric(as.factor(nonOECDUC_adjusted_rdy$capital))-1
+nonOECDUC_adjusted_rdy$dummyCHN <- as.numeric(as.factor(nonOECDUC_adjusted_rdy$dummyCHN))-1
+nonOECDUC_adjusted_rdy$dummyIND <- as.numeric(as.factor(nonOECDUC_adjusted_rdy$dummyIND))-1
 
   
 mv <- multiverse()
@@ -1800,8 +1799,8 @@ mv <- multiverse()
 # Branching on dataset
 inside(mv, {
   dataset <- branch(dataset_choice,
-             data1 = nonOECDFUA_rdy,
-             data2 = nonOECDFUA_adjusted_rdy)
+             data1 = nonOECDUC_rdy,
+             data2 = nonOECDUC_adjusted_rdy)
 }
        )
 
@@ -2197,7 +2196,7 @@ coef_dataExpanded <- expanded %>%
 
 coef_dataModels <- coef_dataExpanded %>% unnest(cols = c(final_df3))
 
-p1 <- ggplot(subset(coef_dataModels, group == "Key Variables" & dataset_choice == "nonOECDFUA_adjusted_rdy" & monitorType == "everything_noEmbassy"), aes(y = Level, x = Mean_Predicted)) +
+p1 <- ggplot(subset(coef_dataModels, group == "Key Variables" & dataset_choice == "nonOECDUC_adjusted_rdy" & monitorType == "everything_noEmbassy"), aes(y = Level, x = Mean_Predicted)) +
   geom_point(size = 2) +
   geom_linerange(aes(xmin = lowCI, xmax = highCI, group = Scenario, alpha = sign), linewidth = 1.5) +
   facet_wrap(~ Variable, scales = "free_y", nrow = 6, strip.position = "left") +
@@ -2213,7 +2212,7 @@ p1 <- ggplot(subset(coef_dataModels, group == "Key Variables" & dataset_choice =
   )
 p1
 
-p2 <- ggplot(subset(coef_dataModels, group == "Control Variables" & dataset_choice == "nonOECDFUA_adjusted_rdy" & monitorType == "everything_noEmbassy"), aes(y = Level, x = Mean_Predicted)) +
+p2 <- ggplot(subset(coef_dataModels, group == "Control Variables" & dataset_choice == "nonOECDUC_adjusted_rdy" & monitorType == "everything_noEmbassy"), aes(y = Level, x = Mean_Predicted)) +
   geom_point(size = 2) +
   geom_linerange(aes(xmin = lowCI, xmax = highCI, group = Scenario, alpha = sign), linewidth = 1.5) +
   facet_wrap(~ Variable, scales = "free_y", nrow = 6, strip.position = "left") +
@@ -2372,32 +2371,32 @@ library(tidyverse)
 
 "%ni%" = Negate("%in%")
 
-FUA_data <- read.csv("outputData/FUA_nsf_merged_monitorsOpenAQWAQI.csv")
+UC_data <- read.csv("outputData/UC_nsf_merged_monitorsOpenAQWAQI.csv")
 
-FUA_gridded <- read.csv("outputData/FUA_nsf_monitors_mergedGrid.csv")
-FUA_data <- merge(FUA_data, FUA_gridded, by = "ID_HDC_G0")
+UC_gridded <- read.csv("outputData/UC_nsf_monitors_mergedGrid.csv")
+UC_data <- merge(UC_data, UC_gridded, by = "ID_HDC_G0")
 
-nonOECDFUA <- subset(FUA_data, oecd != 'OECD')
-nonOECDFUA <- subset(nonOECDFUA, INCM_CMI %ni% c('HIC', 'Other') & !is.na(INCM_CMI)) # remove high income countries and NA
-nonOECDFUA <- subset(nonOECDFUA, !is.na(vdem_bin)) # here I subset the countries that are not in the vdem dataset
-# nonOECDFUA_woINDCHN <- subset(nonOECDFUA, CTR_MN_NM %ni% c('India', 'China')) # here I subset india and china
+nonOECDUC <- subset(UC_data, oecd != 'OECD')
+nonOECDUC <- subset(nonOECDUC, INCM_CMI %ni% c('HIC', 'Other') & !is.na(INCM_CMI)) # remove high income countries and NA
+nonOECDUC <- subset(nonOECDUC, !is.na(vdem_bin)) # here I subset the countries that are not in the vdem dataset
+# nonOECDUC_woINDCHN <- subset(nonOECDUC, CTR_MN_NM %ni% c('India', 'China')) # here I subset india and china
 
-nonOECDFUA$vdem_bin <- ifelse(nonOECDFUA$vdem_bin == "non-democracy", "0non-democracy",
-                                       ifelse(nonOECDFUA$vdem_bin == "democracy", "1democracy", NA))
+nonOECDUC$vdem_bin <- ifelse(nonOECDUC$vdem_bin == "non-democracy", "0non-democracy",
+                                       ifelse(nonOECDUC$vdem_bin == "democracy", "1democracy", NA))
 
-nonOECDFUA <- subset(nonOECDFUA, GDP15_SM != 0) #
+nonOECDUC <- subset(nonOECDUC, GDP15_SM != 0) #
 
-nonOECDFUA$GDP15_SMpc <- nonOECDFUA$GDP15_SM/nonOECDFUA$P15
+nonOECDUC$GDP15_SMpc <- nonOECDUC$GDP15_SM/nonOECDUC$P15
 
-nonOECDFUA$isMonitor <- as.factor(ifelse((nonOECDFUA$numberMonitor - nonOECDFUA$numberUSEmbassyMonitors) > 0, 1, 0))
+nonOECDUC$isMonitor <- as.factor(ifelse((nonOECDUC$numberMonitor - nonOECDUC$numberUSEmbassyMonitors) > 0, 1, 0))
 
 # add a dummy IND and CHN
-nonOECDFUA$dummyCHN <- as.factor(ifelse(nonOECDFUA$CTR_MN_NM == "China", 1, 0))
-nonOECDFUA$dummyIND <- as.factor(ifelse(nonOECDFUA$CTR_MN_NM == "India", 1, 0))
+nonOECDUC$dummyCHN <- as.factor(ifelse(nonOECDUC$CTR_MN_NM == "China", 1, 0))
+nonOECDUC$dummyIND <- as.factor(ifelse(nonOECDUC$CTR_MN_NM == "India", 1, 0))
 
 # Below we sub-sample IND and CHN because they make up the whole dataset otherwise
 # Step 1: Identify the number of rows of the third most present label
-label_counts <- nonOECDFUA %>%
+label_counts <- nonOECDUC %>%
   count(CTR_MN_NM) %>%
   arrange(desc(n))
 
@@ -2406,17 +2405,17 @@ target_rows <- label_counts$n[3]
 
 # Subsample for "India" and "China"
 # Step 2: Adjust the rows for "India"
-df_india_adjusted <- nonOECDFUA %>%
+df_india_adjusted <- nonOECDUC %>%
   filter(CTR_MN_NM == "India") %>%
   sample_n(min(n(), target_rows))
 
 # Step 2: Adjust the rows for "China"
-df_china_adjusted <- nonOECDFUA %>%
+df_china_adjusted <- nonOECDUC %>%
   filter(CTR_MN_NM == "China") %>%
   sample_n(min(n(), target_rows))
 
 # Combine adjusted "India" and "China" with other labels
-nonOECDFUA_adjusted <- nonOECDFUA %>%
+nonOECDUC_adjusted <- nonOECDUC %>%
   filter(!CTR_MN_NM %in% c("India", "China")) %>%
   bind_rows(df_india_adjusted, df_china_adjusted)
 
@@ -2427,7 +2426,7 @@ fit <- glm(formula = isMonitor
                     capital +
                     log(P15)
                     + dummyCHN + dummyIND
-                  , binomial(link = "logit"), data = nonOECDFUA_adjusted)
+                  , binomial(link = "logit"), data = nonOECDUC_adjusted)
 
 # Test with the Poisson Regression, to compare "goodness of fit"
 model <- glm(formula = numberMonitors ~ log(GDP15_SMpc+1) + pm25VanD20002016 * vdem_bin +
@@ -2438,17 +2437,17 @@ model <- glm(formula = numberMonitors ~ log(GDP15_SMpc+1) + pm25VanD20002016 * v
   +  dummyIND +
   +  dummyCHN
   ,
-data = nonOECDFUA_adjusted, family = poisson(link = "log"))
+data = nonOECDUC_adjusted, family = poisson(link = "log"))
 
 AIC(model) # 8758.769
 
 prediction_grid <- expand.grid(
-  GDP15_SMpc = mean(nonOECDFUA_adjusted$GDP15_SMpc, na.rm = TRUE), # Using median or mean as appropriate
+  GDP15_SMpc = mean(nonOECDUC_adjusted$GDP15_SMpc, na.rm = TRUE), # Using median or mean as appropriate
   vdem_bin = c("1democracy", "0non-democracy"), # Both categories
-  pm25VanD20002016 = seq(min(nonOECDFUA_adjusted$pm25VanD20002016, na.rm = TRUE), max(nonOECDFUA_adjusted$pm25VanD20002016, na.rm = TRUE), length.out = 100),
+  pm25VanD20002016 = seq(min(nonOECDUC_adjusted$pm25VanD20002016, na.rm = TRUE), max(nonOECDUC_adjusted$pm25VanD20002016, na.rm = TRUE), length.out = 100),
   conflict_cumulative_intensity_22 = "nowar",
-  CPI_2012_2022 = mean(nonOECDFUA_adjusted$CPI_2012_2022, na.rm = TRUE),
-  P15 = mean(nonOECDFUA_adjusted$P15, na.rm = TRUE),
+  CPI_2012_2022 = mean(nonOECDUC_adjusted$CPI_2012_2022, na.rm = TRUE),
+  P15 = mean(nonOECDUC_adjusted$P15, na.rm = TRUE),
   capital = 1,
   dummyIND = 0,
   dummyCHN = 0
@@ -2472,7 +2471,7 @@ summaryModel <- summary(fit)$coefficients
 
 p <- prediction_grid %>% ggplot(aes(x = pm25VanD20002016, y = prediction)) +
   geom_line(aes(color = vdem_bin)) +
-  geom_histogram(data = nonOECDFUA_adjusted, aes(y = after_stat(count)/1000), bins = 30, fill = "grey70", alpha = 0.4, position = "identity") +
+  geom_histogram(data = nonOECDUC_adjusted, aes(y = after_stat(count)/1000), bins = 30, fill = "grey70", alpha = 0.4, position = "identity") +
   scale_color_manual(values = c("#9fcbee", "#d8031c"), guide = "none") +
   geom_abline(slope = 0, intercept = 1, linewidth = 0.4, linetype = "dashed")+
   geom_ribbon(aes(color = vdem_bin, ymin = lower, ymax = upper, fill = vdem_bin), alpha = 0.2, linewidth = 0.2) +
@@ -2514,28 +2513,28 @@ set.seed(321)
 
 "%ni%" = Negate("%in%")
 
-FUA_data <- read.csv("outputData/FUA_nsf_merged_monitorsOpenAQWAQI.csv")
+UC_data <- read.csv("outputData/UC_nsf_merged_monitorsOpenAQWAQI.csv")
 
-FUA_gridded <- read.csv("outputData/FUA_nsf_monitors_mergedGrid.csv")
-FUA_data <- merge(FUA_data, FUA_gridded, by = "ID_HDC_G0")
+UC_gridded <- read.csv("outputData/UC_nsf_monitors_mergedGrid.csv")
+UC_data <- merge(UC_data, UC_gridded, by = "ID_HDC_G0")
 
-nonOECDFUA <- subset(FUA_data, oecd != 'OECD')
-nonOECDFUA <- subset(nonOECDFUA, INCM_CMI %ni% c('HIC', 'Other') & !is.na(INCM_CMI)) # remove high income countries and NA
-nonOECDFUA <- subset(nonOECDFUA, !is.na(vdem_bin)) # here I subset the countries that are not in the vdem dataset
+nonOECDUC <- subset(UC_data, oecd != 'OECD')
+nonOECDUC <- subset(nonOECDUC, INCM_CMI %ni% c('HIC', 'Other') & !is.na(INCM_CMI)) # remove high income countries and NA
+nonOECDUC <- subset(nonOECDUC, !is.na(vdem_bin)) # here I subset the countries that are not in the vdem dataset
 
-nonOECDFUA <- subset(nonOECDFUA, GDP15_SM != 0) #
-nonOECDFUA$GDP15_SMpc <- nonOECDFUA$GDP15_SM/nonOECDFUA$P15
+nonOECDUC <- subset(nonOECDUC, GDP15_SM != 0) #
+nonOECDUC$GDP15_SMpc <- nonOECDUC$GDP15_SM/nonOECDUC$P15
 
-nonOECDFUA$vdem_bin <- ifelse(nonOECDFUA$vdem_bin == "non-democracy", "0non-democracy",
-                                       ifelse(nonOECDFUA$vdem_bin == "democracy", "1democracy", NA))
+nonOECDUC$vdem_bin <- ifelse(nonOECDUC$vdem_bin == "non-democracy", "0non-democracy",
+                                       ifelse(nonOECDUC$vdem_bin == "democracy", "1democracy", NA))
 
 # add a dummy IND and CHN
-nonOECDFUA$dummyCHN <- as.factor(ifelse(nonOECDFUA$CTR_MN_NM == "China", 1, 0))
-nonOECDFUA$dummyIND <- as.factor(ifelse(nonOECDFUA$CTR_MN_NM == "India", 1, 0))
+nonOECDUC$dummyCHN <- as.factor(ifelse(nonOECDUC$CTR_MN_NM == "China", 1, 0))
+nonOECDUC$dummyIND <- as.factor(ifelse(nonOECDUC$CTR_MN_NM == "India", 1, 0))
 
 # Below we sub-sample IND and CHN because they make up the whole dataset otherwise
 # Step 1: Identify the number of rows of the third most present label
-label_counts <- nonOECDFUA %>%
+label_counts <- nonOECDUC %>%
   count(CTR_MN_NM) %>%
   arrange(desc(n))
 
@@ -2544,17 +2543,17 @@ target_rows <- label_counts$n[3]
 
 # Subsample for "India" and "China"
 # Step 2: Adjust the rows for "India"
-df_india_adjusted <- nonOECDFUA %>%
+df_india_adjusted <- nonOECDUC %>%
   filter(CTR_MN_NM == "India") %>%
   sample_n(min(n(), target_rows))
 
 # Step 2: Adjust the rows for "China"
-df_china_adjusted <- nonOECDFUA %>%
+df_china_adjusted <- nonOECDUC %>%
   filter(CTR_MN_NM == "China") %>%
   sample_n(min(n(), target_rows))
 
 # Combine adjusted "India" and "China" with other labels
-nonOECDFUA_adjusted <- nonOECDFUA %>%
+nonOECDUC_adjusted <- nonOECDUC %>%
   filter(!CTR_MN_NM %in% c("India", "China")) %>%
   bind_rows(df_india_adjusted, df_china_adjusted)
 
@@ -2564,8 +2563,8 @@ mv <- multiverse()
 # Branching on dataset
 inside(mv, {
   dataset <- branch(dataset_choice,
-             data1 = nonOECDFUA,
-             data2 = nonOECDFUA_adjusted)
+             data1 = nonOECDUC,
+             data2 = nonOECDUC_adjusted)
 }
        )
 
@@ -2766,8 +2765,6 @@ p_value_to_symbol <- function(p) {
 
 full_df$symbol <- sapply(full_df$p_value, p_value_to_symbol)
 
-symbols
-
 logitModels <- full_df %>%
   filter(model == "logit") # Adjust this filter based on your actual data structure
 poissonModels <- full_df %>%
@@ -2839,29 +2836,29 @@ library(tidyverse)
 
 "%ni%" = Negate("%in%")
 
-FUA_data <- read.csv("outputData/FUA_nsf_merged_monitorsOpenAQWAQI.csv")
+UC_data <- read.csv("outputData/UC_nsf_merged_monitorsOpenAQWAQI.csv")
 
-FUA_gridded <- read.csv("outputData/FUA_nsf_monitors_mergedGrid.csv")
-FUA_data <- merge(FUA_data, FUA_gridded, by = "ID_HDC_G0")
+UC_gridded <- read.csv("outputData/UC_nsf_monitors_mergedGrid.csv")
+UC_data <- merge(UC_data, UC_gridded, by = "ID_HDC_G0")
 
-nonOECDFUA <- subset(FUA_data, oecd != 'OECD')
-nonOECDFUA <- subset(nonOECDFUA, INCM_CMI %ni% c('HIC', 'Other') & !is.na(INCM_CMI)) # remove high income countries and NA
-nonOECDFUA <- subset(nonOECDFUA, !is.na(vdem_bin)) # here I subset the countries that are not in the vdem dataset
+nonOECDUC <- subset(UC_data, oecd != 'OECD')
+nonOECDUC <- subset(nonOECDUC, INCM_CMI %ni% c('HIC', 'Other') & !is.na(INCM_CMI)) # remove high income countries and NA
+nonOECDUC <- subset(nonOECDUC, !is.na(vdem_bin)) # here I subset the countries that are not in the vdem dataset
 
-nonOECDFUA <- subset(nonOECDFUA, GDP15_SM != 0) # 
+nonOECDUC <- subset(nonOECDUC, GDP15_SM != 0) # 
 
-nonOECDFUA$isMonitor <- as.numeric(ifelse((nonOECDFUA$numberMonitor - nonOECDFUA$numberUSEmbassyMonitors) > 0, 1, 0))
+nonOECDUC$isMonitor <- as.numeric(ifelse((nonOECDUC$numberMonitor - nonOECDUC$numberUSEmbassyMonitors) > 0, 1, 0))
 
 # Try with a dummy IND and CHN
-nonOECDFUA$dummyCHN <- as.numeric(ifelse(nonOECDFUA$CTR_MN_NM == "China", 1, 0))
-nonOECDFUA$dummyIND <- as.numeric(ifelse(nonOECDFUA$CTR_MN_NM == "India", 1, 0))
+nonOECDUC$dummyCHN <- as.numeric(ifelse(nonOECDUC$CTR_MN_NM == "China", 1, 0))
+nonOECDUC$dummyIND <- as.numeric(ifelse(nonOECDUC$CTR_MN_NM == "India", 1, 0))
 
-nonOECDFUA$vdem_bin <- ifelse(nonOECDFUA$vdem_bin == "non-democracy", "0non-democracy",
-                                       ifelse(nonOECDFUA$vdem_bin == "democracy", "1democracy", NA))
+nonOECDUC$vdem_bin <- ifelse(nonOECDUC$vdem_bin == "non-democracy", "0non-democracy",
+                                       ifelse(nonOECDUC$vdem_bin == "democracy", "1democracy", NA))
 
 
 # let's do the country level analysis with the full dataset
-countryLevel <- nonOECDFUA %>% 
+countryLevel <- nonOECDUC %>% 
   group_by(CTR_MN_NM) %>% 
   summarize(
     cityNumber = n(),
@@ -2994,31 +2991,31 @@ library(officer)
 
 "%ni%" = Negate("%in%")
 
-FUA_data <- read.csv("outputData/FUA_nsf_merged_monitorsOpenAQWAQI.csv")
+UC_data <- read.csv("outputData/UC_nsf_merged_monitorsOpenAQWAQI.csv")
 
-FUA_gridded <- read.csv("outputData/FUA_nsf_monitors_mergedGrid.csv")
-FUA_data <- merge(FUA_data, FUA_gridded, by = "ID_HDC_G0")
+UC_gridded <- read.csv("outputData/UC_nsf_monitors_mergedGrid.csv")
+UC_data <- merge(UC_data, UC_gridded, by = "ID_HDC_G0")
 
-nonOECDFUA <- subset(FUA_data, oecd != 'OECD')
-nonOECDFUA <- subset(nonOECDFUA, INCM_CMI %ni% c('HIC', 'Other') & !is.na(INCM_CMI)) # remove high income countries and NA
-nonOECDFUA <- subset(nonOECDFUA, !is.na(vdem_bin)) # here I subset the countries that are not in the vdem dataset
+nonOECDUC <- subset(UC_data, oecd != 'OECD')
+nonOECDUC <- subset(nonOECDUC, INCM_CMI %ni% c('HIC', 'Other') & !is.na(INCM_CMI)) # remove high income countries and NA
+nonOECDUC <- subset(nonOECDUC, !is.na(vdem_bin)) # here I subset the countries that are not in the vdem dataset
 
-nonOECDFUA <- subset(nonOECDFUA, GDP15_SM != 0) #
+nonOECDUC <- subset(nonOECDUC, GDP15_SM != 0) #
 
-nonOECDFUA$isMonitor <- as.factor(ifelse((nonOECDFUA$numberMonitor) > 0, 1, 0))
-nonOECDFUA$isNonUSMonitor <- as.factor(ifelse((nonOECDFUA$numberMonitor - nonOECDFUA$numberUSEmbassyMonitors) > 0, 1, 0))
+nonOECDUC$isMonitor <- as.factor(ifelse((nonOECDUC$numberMonitor) > 0, 1, 0))
+nonOECDUC$isNonUSMonitor <- as.factor(ifelse((nonOECDUC$numberMonitor - nonOECDUC$numberUSEmbassyMonitors) > 0, 1, 0))
 
 # add a dummy IND and CHN
-nonOECDFUA$dummyCHN <- as.factor(ifelse(nonOECDFUA$CTR_MN_NM == "China", 1, 0))
-nonOECDFUA$dummyIND <- as.factor(ifelse(nonOECDFUA$CTR_MN_NM == "India", 1, 0))
+nonOECDUC$dummyCHN <- as.factor(ifelse(nonOECDUC$CTR_MN_NM == "China", 1, 0))
+nonOECDUC$dummyIND <- as.factor(ifelse(nonOECDUC$CTR_MN_NM == "India", 1, 0))
 
-nonOECDFUA$vdem_bin <- ifelse(nonOECDFUA$vdem_bin == "non-democracy", "0non-democracy",
-                                       ifelse(nonOECDFUA$vdem_bin == "democracy", "1democracy", NA))
+nonOECDUC$vdem_bin <- ifelse(nonOECDUC$vdem_bin == "non-democracy", "0non-democracy",
+                                       ifelse(nonOECDUC$vdem_bin == "democracy", "1democracy", NA))
 
 
 # Below we sub-sample IND and CHN because they make up the whole dataset otherwise
 # Step 1: Identify the number of rows of the third most present label
-label_counts <- nonOECDFUA %>%
+label_counts <- nonOECDUC %>%
   count(CTR_MN_NM) %>%
   arrange(desc(n))
 
@@ -3027,35 +3024,35 @@ target_rows <- label_counts$n[3]
 
 # Subsample for "India" and "China"
 # Step 2: Adjust the rows for "India"
-df_india_adjusted <- nonOECDFUA %>%
+df_india_adjusted <- nonOECDUC %>%
   filter(CTR_MN_NM == "India") %>%
   sample_n(min(n(), target_rows))
 
 # Step 2: Adjust the rows for "China"
-df_china_adjusted <- nonOECDFUA %>%
+df_china_adjusted <- nonOECDUC %>%
   filter(CTR_MN_NM == "China") %>%
   sample_n(min(n(), target_rows))
 
 # Combine adjusted "India" and "China" with other labels
-nonOECDFUA_adjusted <- nonOECDFUA %>%
+nonOECDUC_adjusted <- nonOECDUC %>%
   filter(!CTR_MN_NM %in% c("India", "China")) %>%
   bind_rows(df_india_adjusted, df_china_adjusted)
 
 
 # Number of cities with / without monitor: 1365 / 9741
-df <- nonOECDFUA %>%
+df <- nonOECDUC %>%
   group_by(isMonitor) %>%
   summarize(nb = n())
 
 # Number of cities with / just US embassy monitor: 13
-nonOECDFUA$isUSMonitor <- as.factor(ifelse((nonOECDFUA$numberUSEmbassyMonitors) > 0, 1, 0))
-nonOECDFUA$isOnlyUSMonitor <- as.factor(ifelse((nonOECDFUA$isMonitor == 1 & ((as.numeric(nonOECDFUA$numberMonitors) - as.numeric(nonOECDFUA$numberUSEmbassyMonitors)) == 0)), 1, 0))
+nonOECDUC$isUSMonitor <- as.factor(ifelse((nonOECDUC$numberUSEmbassyMonitors) > 0, 1, 0))
+nonOECDUC$isOnlyUSMonitor <- as.factor(ifelse((nonOECDUC$isMonitor == 1 & ((as.numeric(nonOECDUC$numberMonitors) - as.numeric(nonOECDUC$numberUSEmbassyMonitors)) == 0)), 1, 0))
 
-df <- nonOECDFUA %>%
+df <- nonOECDUC %>%
   group_by(isOnlyUSMonitor) %>%
   summarize(nb = n())
 
-capitals <- subset(nonOECDFUA, capital == T)
+capitals <- subset(nonOECDUC, capital == T)
 
 capitals$nbMonitorsNonUS <- capitals$numberMonitors - capitals$numberUSEmbassyMonitors
 
@@ -3199,29 +3196,29 @@ library(tidyverse)
 
 "%ni%" = Negate("%in%")
 
-FUA_data <- read.csv("outputData/FUA_nsf_merged_monitorsOpenAQWAQI.csv")
+UC_data <- read.csv("outputData/UC_nsf_merged_monitorsOpenAQWAQI.csv")
 
-FUA_gridded <- read.csv("outputData/FUA_nsf_monitors_mergedGrid.csv")
-FUA_data <- merge(FUA_data, FUA_gridded, by = "ID_HDC_G0")
+UC_gridded <- read.csv("outputData/UC_nsf_monitors_mergedGrid.csv")
+UC_data <- merge(UC_data, UC_gridded, by = "ID_HDC_G0")
 
 
-nonOECDFUA <- subset(FUA_data, oecd != 'OECD')
-nonOECDFUA <- subset(nonOECDFUA, INCM_CMI %ni% c('HIC', 'Other') & !is.na(INCM_CMI)) # remove high income countries and NA
-nonOECDFUA <- subset(nonOECDFUA, !is.na(vdem_bin)) # here I subset the countries that are not in the vdem dataset
+nonOECDUC <- subset(UC_data, oecd != 'OECD')
+nonOECDUC <- subset(nonOECDUC, INCM_CMI %ni% c('HIC', 'Other') & !is.na(INCM_CMI)) # remove high income countries and NA
+nonOECDUC <- subset(nonOECDUC, !is.na(vdem_bin)) # here I subset the countries that are not in the vdem dataset
 
-nonOECDFUA <- subset(nonOECDFUA, GDP15_SM != 0) # 
-nonOECDFUA$GDP15_SMpc <- nonOECDFUA$GDP15_SM/nonOECDFUA$P15
+nonOECDUC <- subset(nonOECDUC, GDP15_SM != 0) # 
+nonOECDUC$GDP15_SMpc <- nonOECDUC$GDP15_SM/nonOECDUC$P15
 
-nonOECDFUA$isMonitor <- as.factor(ifelse((nonOECDFUA$numberMonitor - nonOECDFUA$numberUSEmbassyMonitors) > 0, 1, 0))
-nonOECDFUA$numberMonitorNonEmbassy <- nonOECDFUA$numberMonitor - nonOECDFUA$numberUSEmbassyMonitors
+nonOECDUC$isMonitor <- as.factor(ifelse((nonOECDUC$numberMonitor - nonOECDUC$numberUSEmbassyMonitors) > 0, 1, 0))
+nonOECDUC$numberMonitorNonEmbassy <- nonOECDUC$numberMonitor - nonOECDUC$numberUSEmbassyMonitors
 
 # add a dummy IND and CHN
-nonOECDFUA$dummyCHN <- as.factor(ifelse(nonOECDFUA$CTR_MN_NM == "China", 1, 0))
-nonOECDFUA$dummyIND <- as.factor(ifelse(nonOECDFUA$CTR_MN_NM == "India", 1, 0))
+nonOECDUC$dummyCHN <- as.factor(ifelse(nonOECDUC$CTR_MN_NM == "China", 1, 0))
+nonOECDUC$dummyIND <- as.factor(ifelse(nonOECDUC$CTR_MN_NM == "India", 1, 0))
 
 # Below we sub-sample IND and CHN because they make up the whole dataset otherwise
 # Step 1: Identify the number of rows of the third most present label
-label_counts <- nonOECDFUA %>%
+label_counts <- nonOECDUC %>%
   count(CTR_MN_NM) %>%
   arrange(desc(n))
 
@@ -3230,17 +3227,17 @@ target_rows <- label_counts$n[3]
 
 # Subsample for "India" and "China"
 # Step 2: Adjust the rows for "India"
-df_india_adjusted <- nonOECDFUA %>%
+df_india_adjusted <- nonOECDUC %>%
   filter(CTR_MN_NM == "India") %>%
   sample_n(min(n(), target_rows))
 
 # Step 2: Adjust the rows for "China"
-df_china_adjusted <- nonOECDFUA %>%
+df_china_adjusted <- nonOECDUC %>%
   filter(CTR_MN_NM == "China") %>%
   sample_n(min(n(), target_rows))
 
 # Combine adjusted "India" and "China" with other labels
-nonOECDFUA_adjusted <- nonOECDFUA %>%
+nonOECDUC_adjusted <- nonOECDUC %>%
   filter(!CTR_MN_NM %in% c("India", "China")) %>%
   bind_rows(df_india_adjusted, df_china_adjusted)
 
@@ -3252,15 +3249,15 @@ fit <- glm(formula = isMonitor
                     capital +
                     log(P15)
                     + dummyCHN + dummyIND
-                  , binomial(link = "logit"), data = nonOECDFUA_adjusted)
+                  , binomial(link = "logit"), data = nonOECDUC_adjusted)
 
 prediction_grid <- expand.grid(
-  GDP15_SMpc = quantile(nonOECDFUA_adjusted$GDP15_SMpc, probs = seq(0, 1, length.out = 9), na.rm = TRUE),
+  GDP15_SMpc = quantile(nonOECDUC_adjusted$GDP15_SMpc, probs = seq(0, 1, length.out = 9), na.rm = TRUE),
   vdem_bin = c("democracy", "non-democracy"), # Both categories
-  pm25VanD20002016 = seq(min(nonOECDFUA_adjusted$pm25VanD20002016, na.rm = TRUE), max(nonOECDFUA_adjusted$pm25VanD20002016, na.rm = TRUE), length.out = 100),
+  pm25VanD20002016 = seq(min(nonOECDUC_adjusted$pm25VanD20002016, na.rm = TRUE), max(nonOECDUC_adjusted$pm25VanD20002016, na.rm = TRUE), length.out = 100),
   conflict_cumulative_intensity_22 = "nowar",
-  CPI_2012_2022 = mean(nonOECDFUA_adjusted$CPI_2012_2022, na.rm = TRUE),
-  P15 = mean(nonOECDFUA_adjusted$P15, na.rm = TRUE),
+  CPI_2012_2022 = mean(nonOECDUC_adjusted$CPI_2012_2022, na.rm = TRUE),
+  P15 = mean(nonOECDUC_adjusted$P15, na.rm = TRUE),
   capital = 1,
   dummyIND = 0,
   dummyCHN = 0
@@ -3283,7 +3280,7 @@ prediction_grid$upper <- prediction_grid$prediction + 1.96 * prediction_grid$se
 summaryModel <- summary(fit)$coefficients
 
 # Create a named vector for the custom facet labels
-gdp_labels <- setNames(paste("Quantile GDP p.c.", (0:8)/0.08), quantile(nonOECDFUA_adjusted$GDP15_SMpc, probs = seq(0, 1, length.out = 9), na.rm = TRUE))
+gdp_labels <- setNames(paste("Quantile GDP p.c.", (0:8)/0.08), quantile(nonOECDUC_adjusted$GDP15_SMpc, probs = seq(0, 1, length.out = 9), na.rm = TRUE))
 
 p <- prediction_grid %>% ggplot(aes(x = pm25VanD20002016, y = prediction, color = vdem_bin)) +
   geom_line() +
@@ -3322,30 +3319,30 @@ library(tidyverse)
 
 "%ni%" = Negate("%in%")
 
-dir.create("plotsExtra/subsamplingLogit")
+dir.create("plots/subsamplingLogit")
 
-FUA_data <- read.csv("outputData/FUA_nsf_merged_monitorsOpenAQWAQI.csv")
+UC_data <- read.csv("outputData/UC_nsf_merged_monitorsOpenAQWAQI.csv")
 
-FUA_gridded <- read.csv("outputData/FUA_nsf_monitors_mergedGrid.csv")
-FUA_data <- merge(FUA_data, FUA_gridded, by = "ID_HDC_G0")
+UC_gridded <- read.csv("outputData/UC_nsf_monitors_mergedGrid.csv")
+UC_data <- merge(UC_data, UC_gridded, by = "ID_HDC_G0")
 
-nonOECDFUA <- subset(FUA_data, oecd != 'OECD')
-nonOECDFUA <- subset(nonOECDFUA, INCM_CMI %ni% c('HIC', 'Other') & !is.na(INCM_CMI)) # remove high income countries and NA
-nonOECDFUA <- subset(nonOECDFUA, !is.na(vdem_bin)) # here I subset the countries that are not in the vdem dataset
-# nonOECDFUA_woINDCHN <- subset(nonOECDFUA, CTR_MN_NM %ni% c('India', 'China')) # here I subset india and china
+nonOECDUC <- subset(UC_data, oecd != 'OECD')
+nonOECDUC <- subset(nonOECDUC, INCM_CMI %ni% c('HIC', 'Other') & !is.na(INCM_CMI)) # remove high income countries and NA
+nonOECDUC <- subset(nonOECDUC, !is.na(vdem_bin)) # here I subset the countries that are not in the vdem dataset
+# nonOECDUC_woINDCHN <- subset(nonOECDUC, CTR_MN_NM %ni% c('India', 'China')) # here I subset india and china
 
-nonOECDFUA <- subset(nonOECDFUA, GDP15_SM != 0) #
-nonOECDFUA$GDP15_SMpc <- nonOECDFUA$GDP15_SM/nonOECDFUA$P15
+nonOECDUC <- subset(nonOECDUC, GDP15_SM != 0) #
+nonOECDUC$GDP15_SMpc <- nonOECDUC$GDP15_SM/nonOECDUC$P15
 
-nonOECDFUA$isMonitor <- as.factor(ifelse((nonOECDFUA$numberMonitor - nonOECDFUA$numberUSEmbassyMonitors) > 0, 1, 0))
+nonOECDUC$isMonitor <- as.factor(ifelse((nonOECDUC$numberMonitor - nonOECDUC$numberUSEmbassyMonitors) > 0, 1, 0))
 
 # add dummy IND and CHN
-nonOECDFUA$dummyCHN <- as.factor(ifelse(nonOECDFUA$CTR_MN_NM == "China", 1, 0))
-nonOECDFUA$dummyIND <- as.factor(ifelse(nonOECDFUA$CTR_MN_NM == "India", 1, 0))
+nonOECDUC$dummyCHN <- as.factor(ifelse(nonOECDUC$CTR_MN_NM == "China", 1, 0))
+nonOECDUC$dummyIND <- as.factor(ifelse(nonOECDUC$CTR_MN_NM == "India", 1, 0))
 
 # Below we sub-sample IND and CHN because they make up the whole dataset otherwise
 # Step 1: Identify the number of rows of the third most present label
-label_counts <- nonOECDFUA %>%
+label_counts <- nonOECDUC %>%
   count(CTR_MN_NM) %>%
   arrange(desc(n))
 
@@ -3355,25 +3352,25 @@ target_rows <- label_counts$n[3]
 summary_iteractions <- data.frame(matrix(NA, nrow = 1000, ncol = 3))
 colnames(summary_iteractions) <- c("iteration", "estimate", "pvalue")
 
-nonOECDFUA$vdem_bin <- ifelse(nonOECDFUA$vdem_bin == "non-democracy", "0non-democracy",
-                                       ifelse(nonOECDFUA$vdem_bin == "democracy", "1democracy", NA))
+nonOECDUC$vdem_bin <- ifelse(nonOECDUC$vdem_bin == "non-democracy", "0non-democracy",
+                                       ifelse(nonOECDUC$vdem_bin == "democracy", "1democracy", NA))
 
 for(i in 1:1000){
   set.seed(123+i)
   
   # Subsample for "India" and "China"
   # Step 2: Adjust the rows for "India"
-  df_india_adjusted <- nonOECDFUA %>%
+  df_india_adjusted <- nonOECDUC %>%
     filter(CTR_MN_NM == "India") %>%
     sample_n(min(n(), target_rows))
   
   # Step 2: Adjust the rows for "China"
-  df_china_adjusted <- nonOECDFUA %>%
+  df_china_adjusted <- nonOECDUC %>%
     filter(CTR_MN_NM == "China") %>%
     sample_n(min(n(), target_rows))
   
   # Combine adjusted "India" and "China" with other labels
-  nonOECDFUA_adjusted <- nonOECDFUA %>%
+  nonOECDUC_adjusted <- nonOECDUC %>%
     filter(!CTR_MN_NM %in% c("India", "China")) %>%
     bind_rows(df_india_adjusted, df_china_adjusted)
 
@@ -3384,15 +3381,15 @@ fit <- glm(formula = isMonitor
                     capital +
                     log(P15)
                     + dummyCHN + dummyIND
-                  , binomial(link = "logit"), data = nonOECDFUA_adjusted)
+                  , binomial(link = "logit"), data = nonOECDUC_adjusted)
 
 prediction_grid <- expand.grid(
-  GDP15_SMpc = mean(nonOECDFUA_adjusted$GDP15_SMpc, na.rm = TRUE), # Using median or mean as appropriate
+  GDP15_SMpc = mean(nonOECDUC_adjusted$GDP15_SMpc, na.rm = TRUE), # Using median or mean as appropriate
   vdem_bin = c("1democracy", "0non-democracy"), # Both categories
-  pm25VanD20002016 = seq(min(nonOECDFUA_adjusted$pm25VanD20002016, na.rm = TRUE), max(nonOECDFUA_adjusted$pm25VanD20002016, na.rm = TRUE), length.out = 100),
+  pm25VanD20002016 = seq(min(nonOECDUC_adjusted$pm25VanD20002016, na.rm = TRUE), max(nonOECDUC_adjusted$pm25VanD20002016, na.rm = TRUE), length.out = 100),
   conflict_cumulative_intensity_22 = "nowar",
-  CPI_2012_2022 = mean(nonOECDFUA_adjusted$CPI_2012_2022, na.rm = TRUE),
-  P15 = mean(nonOECDFUA_adjusted$P15, na.rm = TRUE),
+  CPI_2012_2022 = mean(nonOECDUC_adjusted$CPI_2012_2022, na.rm = TRUE),
+  P15 = mean(nonOECDUC_adjusted$P15, na.rm = TRUE),
   capital = 1,
   dummyIND = 0,
   dummyCHN = 0
@@ -3447,7 +3444,7 @@ p <- summary_iteractions %>% ggplot(aes(x = estimate))+
   labs(x = "Interaction Coefficient Estimate", y = "Count") +
   theme_minimal()
 
-ggsave(plot = p, filename = paste("plotsExtra/subsamplingLogit/suppFig6histInteraction.png", sep = ""),
+ggsave(plot = p, filename = paste("plotsExtra/subsamplingLogit/suppFig5histInteraction.png", sep = ""),
        dpi=600, width = 12, height = 10, units='cm')
 
 range(summary_iteractions$pvalue)
@@ -3461,7 +3458,7 @@ summary_iteractions %>% ggplot(aes(x = pvalue))+
 ```
 
 
-```{r testing whether different subsets of the IND / CHN subsampling lead to different results in multiverse --- MAYBE NOT NEEDED, PREVIOUS CHUNK IS ENOUGH}
+```{r testing whether different subsets of the IND / CHN subsampling lead to different results in multiverse --- QUITE COMPUTATIONALLY INTENSIVE MAYBE NOT NEEDED, PREVIOUS CHUNK IS ENOUGH}
 
 library(multiverse)
 library(tidyverse)
@@ -3472,29 +3469,29 @@ library(broom)
 
 dir.create("plotsExtra/multiverseSubsamplingLogit")
 
-FUA_data <- read.csv("outputData/FUA_nsf_merged_monitorsOpenAQWAQI.csv")
+UC_data <- read.csv("outputData/UC_nsf_merged_monitorsOpenAQWAQI.csv")
 
-FUA_gridded <- read.csv("outputData/FUA_nsf_monitors_mergedGrid.csv")
-FUA_data <- merge(FUA_data, FUA_gridded, by = "ID_HDC_G0")
+UC_gridded <- read.csv("outputData/UC_nsf_monitors_mergedGrid.csv")
+UC_data <- merge(UC_data, UC_gridded, by = "ID_HDC_G0")
 
-nonOECDFUA <- subset(FUA_data, oecd != 'OECD')
-nonOECDFUA <- subset(nonOECDFUA, INCM_CMI %ni% c('HIC', 'Other') & !is.na(INCM_CMI)) # remove high income countries and NA
-nonOECDFUA <- subset(nonOECDFUA, !is.na(vdem_bin)) # here I subset the countries that are not in the vdem dataset
-# nonOECDFUA_woINDCHN <- subset(nonOECDFUA, CTR_MN_NM %ni% c('India', 'China')) # here I subset india and china
+nonOECDUC <- subset(UC_data, oecd != 'OECD')
+nonOECDUC <- subset(nonOECDUC, INCM_CMI %ni% c('HIC', 'Other') & !is.na(INCM_CMI)) # remove high income countries and NA
+nonOECDUC <- subset(nonOECDUC, !is.na(vdem_bin)) # here I subset the countries that are not in the vdem dataset
+# nonOECDUC_woINDCHN <- subset(nonOECDUC, CTR_MN_NM %ni% c('India', 'China')) # here I subset india and china
 
-nonOECDFUA <- subset(nonOECDFUA, log(GDP15_SM+1) != 0) #
-nonOECDFUA$GDP15_SMpc <- nonOECDFUA$GDP15_SM/nonOECDFUA$P15
+nonOECDUC <- subset(nonOECDUC, log(GDP15_SM+1) != 0) #
+nonOECDUC$GDP15_SMpc <- nonOECDUC$GDP15_SM/nonOECDUC$P15
 
 # Try with a dummy IND and CHN
-nonOECDFUA$dummyCHN <- as.factor(ifelse(nonOECDFUA$CTR_MN_NM == "China", 1, 0))
-nonOECDFUA$dummyIND <- as.factor(ifelse(nonOECDFUA$CTR_MN_NM == "India", 1, 0))
+nonOECDUC$dummyCHN <- as.factor(ifelse(nonOECDUC$CTR_MN_NM == "China", 1, 0))
+nonOECDUC$dummyIND <- as.factor(ifelse(nonOECDUC$CTR_MN_NM == "India", 1, 0))
 
-nonOECDFUA$vdem_bin <- ifelse(nonOECDFUA$vdem_bin == "non-democracy", "0non-democracy",
-                                       ifelse(nonOECDFUA$vdem_bin == "democracy", "1democracy", NA))
+nonOECDUC$vdem_bin <- ifelse(nonOECDUC$vdem_bin == "non-democracy", "0non-democracy",
+                                       ifelse(nonOECDUC$vdem_bin == "democracy", "1democracy", NA))
 
 # Below we sub-sample IND and CHN because they make up the whole dataset otherwise
 # Step 1: Identify the number of rows of the third most present label
-label_counts <- nonOECDFUA %>%
+label_counts <- nonOECDUC %>%
   count(CTR_MN_NM) %>%
   arrange(desc(n))
 
@@ -3509,17 +3506,17 @@ for(i in 1:100){
   
   # Subsample for "India" and "China"
   # Step 2: Adjust the rows for "India"
-  df_india_adjusted <- nonOECDFUA %>%
+  df_india_adjusted <- nonOECDUC %>%
     filter(CTR_MN_NM == "India") %>%
     sample_n(min(n(), target_rows))
   
   # Step 2: Adjust the rows for "China"
-  df_china_adjusted <- nonOECDFUA %>%
+  df_china_adjusted <- nonOECDUC %>%
     filter(CTR_MN_NM == "China") %>%
     sample_n(min(n(), target_rows))
   
   # Combine adjusted "India" and "China" with other labels
-  nonOECDFUA_adjusted <- nonOECDFUA %>%
+  nonOECDUC_adjusted <- nonOECDUC %>%
     filter(!CTR_MN_NM %in% c("India", "China")) %>%
     bind_rows(df_india_adjusted, df_china_adjusted)
 
@@ -3528,7 +3525,7 @@ mv <- multiverse()
 # Branching on model type
 inside(mv, {
   
-  dataset <- nonOECDFUA_adjusted
+  dataset <- nonOECDUC_adjusted
   
   dataset$numberMonitors <- branch(monitorsType,
                                    "everything" ~ dataset$numberMonitors,
