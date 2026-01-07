@@ -237,7 +237,7 @@ FUAs_nsf <- merge(FUAs_nsf, CPI, by.x = "CTR_MN_ISO", by.y = "ISO3", all.x = T, 
 
 FUAs_nsf$CPI_2012_2022 <- (100 - FUAs_nsf$CPI_2012_2022) # Reversing scale so that high is more corrupted
 
-# fifth capital
+# fifth capital, from the FUA dataset
 FUAs_nsf$capital <- ifelse(FUAs_nsf$TT2CC == 0, 1, 0)
 
 # identifying FUAs that have NA as capital -> visual inspection is ok to say they are not capitals

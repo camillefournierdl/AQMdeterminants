@@ -177,7 +177,7 @@ for (i in seq_along(variables)) {
 
 # corruption significant ***
 
-# democracy (important one) significant *** for non democracies
+# democracy (important one) significant *** for non democracies, but need to account for nb of cities in chn and ind and run permtests instead because more robust
 
 # now test with democracy x pollution (not sure what test to do)
 # probably subset the data for democracies and non democracies and run the test
@@ -261,9 +261,9 @@ for (i in seq_along(variables)) {
 # corruption significant *** less corrupted in monitored cities
 
 # democracy (important one) significant ** less democratic in monitored cities ->
-# CAREFUL THO with wilcox test ONLY
+# CAREFUL THO with wilcox test ONLY, perm test more robust
 
-# now test with democracy x pollution (not sure what test to do)
+# now test with democracy x pollution
 # probably subset the data for democracies and non democracies and run the test
 
 ####### Use permutation tests instead 
@@ -1121,21 +1121,11 @@ print(p_democracy)
 print(p_non_democracy)
 
 
-
-
 ggsave(plot = p_democracy, filename = paste('plotsMain/FUAsDemPollutionAQM_subset_demo.png', sep = ""),
        dpi=600, width = 12, height = 8, units='cm')
 
 ggsave(plot = p_non_democracy, filename = paste('plotsMain/FUAsDemPollutionAQM_subset_nonDemo.png', sep = ""),
        dpi=600, width = 12, height = 8, units='cm')
-
-
-
-
-
-
-
-
 
 p <- FUAs_nonOECD %>% ggplot(aes(x = pm25VanD20002016, fill = INDCHNOTH))+
   geom_histogram(alpha = 0.6, position="identity", bins = 70)+
@@ -1346,7 +1336,7 @@ nonOECDFUA$GDP15_SMpc <- nonOECDFUA$GDP15_SM/nonOECDFUA$P15
 
 nonOECDFUA$isMonitor <- as.factor(ifelse((nonOECDFUA$numberMonitor - nonOECDFUA$numberUSEmbassyMonitors) > 0, 1, 0))
 
-# Try with a dummy IND and CHN
+# add a dummy IND and CHN
 nonOECDFUA$dummyCHN <- as.factor(ifelse(nonOECDFUA$CTR_MN_NM == "China", 1, 0))
 nonOECDFUA$dummyIND <- as.factor(ifelse(nonOECDFUA$CTR_MN_NM == "India", 1, 0))
 
@@ -2401,7 +2391,7 @@ nonOECDFUA$GDP15_SMpc <- nonOECDFUA$GDP15_SM/nonOECDFUA$P15
 
 nonOECDFUA$isMonitor <- as.factor(ifelse((nonOECDFUA$numberMonitor - nonOECDFUA$numberUSEmbassyMonitors) > 0, 1, 0))
 
-# Try with a dummy IND and CHN
+# add a dummy IND and CHN
 nonOECDFUA$dummyCHN <- as.factor(ifelse(nonOECDFUA$CTR_MN_NM == "China", 1, 0))
 nonOECDFUA$dummyIND <- as.factor(ifelse(nonOECDFUA$CTR_MN_NM == "India", 1, 0))
 
@@ -2539,7 +2529,7 @@ nonOECDFUA$GDP15_SMpc <- nonOECDFUA$GDP15_SM/nonOECDFUA$P15
 nonOECDFUA$vdem_bin <- ifelse(nonOECDFUA$vdem_bin == "non-democracy", "0non-democracy",
                                        ifelse(nonOECDFUA$vdem_bin == "democracy", "1democracy", NA))
 
-# Try with a dummy IND and CHN
+# add a dummy IND and CHN
 nonOECDFUA$dummyCHN <- as.factor(ifelse(nonOECDFUA$CTR_MN_NM == "China", 1, 0))
 nonOECDFUA$dummyIND <- as.factor(ifelse(nonOECDFUA$CTR_MN_NM == "India", 1, 0))
 
@@ -2743,9 +2733,6 @@ p2 <- poissonModels %>%
 
 ggsave(plot = p2, filename = paste('plots/labelMultiverse2_poisson_noLabel.png', sep = ""),
        dpi=600, width = 25, height = 20, units='cm')
-
-
-
 
 summaryModels <- expanded %>%
   mutate(summaryModel = purrr::map(.results, "summaryModel"))
@@ -3021,7 +3008,7 @@ nonOECDFUA <- subset(nonOECDFUA, GDP15_SM != 0) #
 nonOECDFUA$isMonitor <- as.factor(ifelse((nonOECDFUA$numberMonitor) > 0, 1, 0))
 nonOECDFUA$isNonUSMonitor <- as.factor(ifelse((nonOECDFUA$numberMonitor - nonOECDFUA$numberUSEmbassyMonitors) > 0, 1, 0))
 
-# Try with a dummy IND and CHN
+# add a dummy IND and CHN
 nonOECDFUA$dummyCHN <- as.factor(ifelse(nonOECDFUA$CTR_MN_NM == "China", 1, 0))
 nonOECDFUA$dummyIND <- as.factor(ifelse(nonOECDFUA$CTR_MN_NM == "India", 1, 0))
 
@@ -3228,7 +3215,7 @@ nonOECDFUA$GDP15_SMpc <- nonOECDFUA$GDP15_SM/nonOECDFUA$P15
 nonOECDFUA$isMonitor <- as.factor(ifelse((nonOECDFUA$numberMonitor - nonOECDFUA$numberUSEmbassyMonitors) > 0, 1, 0))
 nonOECDFUA$numberMonitorNonEmbassy <- nonOECDFUA$numberMonitor - nonOECDFUA$numberUSEmbassyMonitors
 
-# Try with a dummy IND and CHN
+# add a dummy IND and CHN
 nonOECDFUA$dummyCHN <- as.factor(ifelse(nonOECDFUA$CTR_MN_NM == "China", 1, 0))
 nonOECDFUA$dummyIND <- as.factor(ifelse(nonOECDFUA$CTR_MN_NM == "India", 1, 0))
 
@@ -3352,7 +3339,7 @@ nonOECDFUA$GDP15_SMpc <- nonOECDFUA$GDP15_SM/nonOECDFUA$P15
 
 nonOECDFUA$isMonitor <- as.factor(ifelse((nonOECDFUA$numberMonitor - nonOECDFUA$numberUSEmbassyMonitors) > 0, 1, 0))
 
-# Try with a dummy IND and CHN
+# add dummy IND and CHN
 nonOECDFUA$dummyCHN <- as.factor(ifelse(nonOECDFUA$CTR_MN_NM == "China", 1, 0))
 nonOECDFUA$dummyIND <- as.factor(ifelse(nonOECDFUA$CTR_MN_NM == "India", 1, 0))
 
@@ -3490,14 +3477,6 @@ FUA_data <- read.csv("outputData/FUA_nsf_merged_monitorsOpenAQWAQI.csv")
 FUA_gridded <- read.csv("outputData/FUA_nsf_monitors_mergedGrid.csv")
 FUA_data <- merge(FUA_data, FUA_gridded, by = "ID_HDC_G0")
 
-# FUA_data$isMonitorAll <- as.factor(ifelse(FUA_data$numberMonitors>0, 1, 0))
-# FUA_data$isMonitorWAQIOpenAQ_embassy <- as.factor(ifelse(FUA_data$numberMonitorsWAQIOpenAQ_embassy>0, 1, 0))
-# FUA_data$isMonitorWAQIOpenAQ_noEmbassy <- as.factor(ifelse(FUA_data$numberMonitorsWAQIOpenAQ_noEmbassy>0, 1, 0))
-# 
-# FUA_data$isGovMonitor <- as.factor(ifelse(FUA_data$numberGovMonitors>0, 1, 0))
-# FUA_data$isNonGovMonitor <- as.factor(ifelse(FUA_data$numberNonGovMonitors>0, 1, 0))
-# FUA_data$isNonUSEMonitor <- as.factor(ifelse((FUA_data$numberMonitors - FUA_data$numberUSEmbassyMonitors)>0, 1, 0))
-
 nonOECDFUA <- subset(FUA_data, oecd != 'OECD')
 nonOECDFUA <- subset(nonOECDFUA, INCM_CMI %ni% c('HIC', 'Other') & !is.na(INCM_CMI)) # remove high income countries and NA
 nonOECDFUA <- subset(nonOECDFUA, !is.na(vdem_bin)) # here I subset the countries that are not in the vdem dataset
@@ -3628,44 +3607,9 @@ predictionGridExpanded <- expanded %>%
 
 gridPredictionModels <- predictionGridExpanded %>% unnest(cols = c(prediction_grid))
 
-# Plot
-# p <- gridPredictionModels %>% ggplot(aes(x = pm25Data, y = prediction, color = vdem_bin)) +
-#   geom_line() +
-#   scale_color_manual(values = c("#9fcbee", "#d8031c")) +
-#   geom_abline(slope = 0, intercept = 1)+
-#   geom_ribbon(aes(ymin = lower, ymax = upper, fill = vdem_bin), alpha = 0.2) +
-#   scale_fill_manual(values = c("#9fcbee", "#d8031c")) +
-#   labs(x = "PM2.5", y = "Predicted Presence", color = "VDem Binary") +
-#   theme_minimal()+
-#   facet_wrap(~ model + dataset_choice + monitorsType + pollutionDataset, scales = "free_y", ncol = 8, strip.position = c("top"))
-# 
-# ggsave(plot = p, filename = paste('C:/Users/cfournier/work_files/air_quality/majaDataCode/advanced/finalFigures/labelMultiverse.png', sep = ""),
-#        dpi=600, width = 25, height = 20, units='cm')
-# 
-# 
-# p <- gridPredictionModels %>% ggplot(aes(x = pm25Data, y = prediction, color = vdem_bin)) +
-#   geom_line() +
-#   scale_color_manual(values = c("#9fcbee", "#d8031c")) +
-#   geom_abline(slope = 0, intercept = 1)+
-#   geom_ribbon(aes(ymin = lower, ymax = upper, fill = vdem_bin), alpha = 0.2) +
-#   scale_fill_manual(values = c("#9fcbee", "#d8031c")) +
-#   labs(x = "PM2.5", y = "Predicted Presence", color = "VDem Binary") +
-#   theme_minimal()+
-#   facet_wrap(~ model + dataset_choice + monitorsType + pollutionDataset, scales = "free_y", ncol = 8, strip.position = c("top"))+
-#   theme(
-#     strip.background = element_blank(),
-#     strip.text.x = element_blank(),
-#     axis.text.x = element_text(size=7)
-#   )
-
-# ggsave(plot = p, filename = paste('C:/Users/cfournier/work_files/air_quality/majaDataCode/advanced/finalFigures/noLabelMultiverse.png', sep = ""),
-#        dpi=600, width = 28, height = 10, units='cm')
-
-
 summaryModels <- expanded %>%
   mutate(summaryModel = purrr::map(.results, "summaryModel"))
 
-# glimpse(summaryModels$summaryModel)
 
 # Extract the specific value from each summaryModel
 summaryModelsPValuePollution <- summaryModels %>%
@@ -3675,22 +3619,6 @@ summaryModelsPValuePollution <- summaryModels %>%
 # Unnest the list of specific values into a column
 summaryModelsfinal <- summaryModelsPValuePollution %>%
   unnest(cols = c(estimate, p_value))
-
-
-# summaryModels <- expanded %>%
-#   mutate(summaryModel = map(.results, "summaryModel")) %>% 
-#   filter(model == "poisson")
-
-# glimpse(summaryModels$summaryModel)
-
-# Extract the specific value from each summaryModel
-# summaryModelsPValuePollution <- summaryModels %>%
-#   mutate(estimate = map(summaryModel, ~ .x[[1]]["pm25Data:vdem_binnon-democracy", "Estimate"]),
-#          p_value = map(summaryModel, ~ .x[[1]]["pm25Data:vdem_binnon-democracy", "Pr(>|z|)"]))
-
-# Unnest the list of specific values into a column
-# summaryModelsPoisson <- summaryModelsPValuePollution %>%
-#   unnest(cols = c(estimate, p_value))
 
 mergedSummaries <- summaryModelsfinal %>% select(.universe, estimate, p_value)
 
