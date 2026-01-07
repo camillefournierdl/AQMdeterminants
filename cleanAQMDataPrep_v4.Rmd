@@ -7,6 +7,8 @@ output: html_document
 
 ```{r clean final dataset- newest dataset}
 
+library(tidyverse)
+
 data3 <- read.csv('data/mergedMonitors_v6.csv', sep = ',', allowEscapes = T)
 
 data3$type <- ifelse(!data3$isMonitor, "Sensor", "Reference Grade")
@@ -59,7 +61,7 @@ sf_to_dfPoly <- function(sf){
 ```
 
 
-```{r spatial join SHP FUA - monitor big database}
+```{r spatial join SHP UC - monitor big database}
 "%ni%" = Negate("%in%")
 
 data3 <- read.csv('outputData/mergedMonitors2_final.csv', sep = ',', allowEscapes = T)
@@ -71,78 +73,78 @@ data3$diffDays <- as.numeric(difftime(data3$lastUpdated, data3$firstUpdated, uni
 
 data3Sub <- subset(data3, (diffDays > 30 | firstUpdated > ymd_hms("2024-02-01T00:00:00+00:00")) | database == "WAQI")
 
-FUAs <- st_read("data/FUA_fixed_geom.gpkg")
+UCs <- st_read("data/UC_fixed_geom.gpkg")
 
 data3Sub <- subset(data3Sub, !is.na(longitude))
 data3Sub_sf <- st_as_sf(data3Sub, coords = c("longitude", "latitude"), crs = 4326)
 
 # Define the function
-countPointsInFUAs <- function(points_sf, FUAs, condition = "TRUE") {
+countPointsInUCs <- function(points_sf, UCs, condition = "TRUE") {
   # Filter data based on the condition
   # The condition is parsed from a string to an expression
   filtered_points <- points_sf %>%
     filter(eval(parse(text = condition)))
   
   # Perform spatial join with filtered points
-  points_within_fuas <- st_join(filtered_points, FUAs, join = st_within) %>%
+  points_within_fuas <- st_join(filtered_points, UCs, join = st_within) %>%
     group_by(ID_HDC_G0) %>%
     summarise(numberMonitors = n(), .groups = 'drop')
   
   # Convert to a regular dataframe if needed
   points_within_fuas_df <- sf_to_dfPoly(points_within_fuas)
   
-  # Ensure all FUAs are included, even those without points
-  nbMonitorFUA <- FUAs %>%
+  # Ensure all UCs are included, even those without points
+  nbMonitorUC <- UCs %>%
     dplyr::select(ID_HDC_G0) %>%
     left_join(points_within_fuas_df, by = "ID_HDC_G0") %>%
     mutate(numberMonitors = replace_na(numberMonitors, 0))
   
-  nbMonitorFUA <- sf_to_dfPoly(nbMonitorFUA)
+  nbMonitorUC <- sf_to_dfPoly(nbMonitorUC)
 
   # Return the result
-  return(nbMonitorFUA)
+  return(nbMonitorUC)
 }
 
-result_ref <- countPointsInFUAs(data3Sub_sf, FUAs, condition = "type == 'Reference Grade'") %>% 
+result_ref <- countPointsInUCs(data3Sub_sf, UCs, condition = "type == 'Reference Grade'") %>% 
   rename(numberRefMonitors = numberMonitors)
 
-result_sens <- countPointsInFUAs(data3Sub_sf, FUAs, condition = "type == 'Sensor'") %>% 
+result_sens <- countPointsInUCs(data3Sub_sf, UCs, condition = "type == 'Sensor'") %>% 
   rename(numberSensMonitors = numberMonitors)
 
-result_USEmbassy <- countPointsInFUAs(data3Sub_sf, FUAs, condition = "type == 'Embassy'") %>% 
+result_USEmbassy <- countPointsInUCs(data3Sub_sf, UCs, condition = "type == 'Embassy'") %>% 
   rename(numberUSEmbassyMonitors = numberMonitors)
 
-result_OpenAQ <- countPointsInFUAs(data3Sub_sf, FUAs, condition = "database == 'OpenAQ'") %>% 
+result_OpenAQ <- countPointsInUCs(data3Sub_sf, UCs, condition = "database == 'OpenAQ'") %>% 
   rename(numberOpenAQMonitors = numberMonitors)
 
-result_WAQI <- countPointsInFUAs(data3Sub_sf, FUAs, condition = "database == 'WAQI'") %>% 
+result_WAQI <- countPointsInUCs(data3Sub_sf, UCs, condition = "database == 'WAQI'") %>% 
   rename(numberWAQIMonitors = numberMonitors)
 
-result_PurpleAir <- countPointsInFUAs(data3Sub_sf, FUAs, condition = "database == 'PurpleAir'") %>% 
+result_PurpleAir <- countPointsInUCs(data3Sub_sf, UCs, condition = "database == 'PurpleAir'") %>% 
   rename(numberPurpleAirMonitors = numberMonitors)
 
 # To count all points, you can omit the condition or set it to TRUE
-result_all <- countPointsInFUAs(data3Sub_sf, FUAs)
+result_all <- countPointsInUCs(data3Sub_sf, UCs)
 
-FUAs_r <- merge(FUAs, result_all, by = "ID_HDC_G0", all.x=T)
-FUAs_r <- merge(FUAs_r, result_ref, by = "ID_HDC_G0", all.x=T)
-FUAs_r <- merge(FUAs_r, result_sens, by = "ID_HDC_G0", all.x=T)
-FUAs_r <- merge(FUAs_r, result_USEmbassy, by = "ID_HDC_G0", all.x=T)
-FUAs_r <- merge(FUAs_r, result_OpenAQ, by = "ID_HDC_G0", all.x=T)
-FUAs_r <- merge(FUAs_r, result_WAQI, by = "ID_HDC_G0", all.x=T)
-FUAs_r <- merge(FUAs_r, result_PurpleAir, by = "ID_HDC_G0", all.x=T)
+UCs_r <- merge(UCs, result_all, by = "ID_HDC_G0", all.x=T)
+UCs_r <- merge(UCs_r, result_ref, by = "ID_HDC_G0", all.x=T)
+UCs_r <- merge(UCs_r, result_sens, by = "ID_HDC_G0", all.x=T)
+UCs_r <- merge(UCs_r, result_USEmbassy, by = "ID_HDC_G0", all.x=T)
+UCs_r <- merge(UCs_r, result_OpenAQ, by = "ID_HDC_G0", all.x=T)
+UCs_r <- merge(UCs_r, result_WAQI, by = "ID_HDC_G0", all.x=T)
+UCs_r <- merge(UCs_r, result_PurpleAir, by = "ID_HDC_G0", all.x=T)
 
-FUAs_nsf <- sf_to_dfPoly(FUAs_r)
+UCs_nsf <- sf_to_dfPoly(UCs_r)
 
-write.csv(x=FUAs_nsf, file="outputData/FUA_nsf_monitorsOpenAQWAQI.csv", row.names = F)
+write.csv(x=UCs_nsf, file="outputData/UC_nsf_monitorsOpenAQWAQI.csv", row.names = F)
 
 ```
 
 ```{r country csv level data}
 
-FUAs_nsf <- read.csv("outputData/FUA_nsf_monitorsOpenAQWAQI.csv", sep=",", header=T) # if need to load
+UCs_nsf <- read.csv("outputData/UC_nsf_monitorsOpenAQWAQI.csv", sep=",", header=T) # if need to load
 
-## We merge different datasets to the FUAs for analysis
+## We merge different datasets to the UCs for analysis
 
 # first OECD Y/N
 oecd <- read.csv("data/oecd.csv", sep=",", header=T)
@@ -150,14 +152,14 @@ oecd$oecd <- ifelse(oecd$Accession < 2020, "OECD", "nonOECD")
 
 oecd <- oecd %>% dplyr::select(Code, oecd) 
 
-FUAs_nsf <- merge(FUAs_nsf, oecd, by.x = "CTR_MN_ISO", by.y = "Code", all.x = T, all.y = F)
+UCs_nsf <- merge(UCs_nsf, oecd, by.x = "CTR_MN_ISO", by.y = "Code", all.x = T, all.y = F)
 
 # testing to see if data makes sense
-test <- FUAs_nsf %>% group_by(oecd) %>% 
+test <- UCs_nsf %>% group_by(oecd) %>% 
   count(CTR_MN_NM) %>%
   ungroup()
 
-FUAs_nsf$oecd <- ifelse(is.na(FUAs_nsf$oecd), "nonOECD", FUAs_nsf$oecd)
+UCs_nsf$oecd <- ifelse(is.na(UCs_nsf$oecd), "nonOECD", UCs_nsf$oecd)
 
 # second V-dem
 
@@ -169,13 +171,13 @@ summary_vdem <- vdem_data %>%
   summarise(mean_edi = mean(v2x_polyarchy, na.rm = TRUE),
             mean_ldi = mean(v2x_libdem, na.rm = TRUE))
 
-FUAs_nsf <- merge(FUAs_nsf, summary_vdem, by.x = "CTR_MN_ISO", by.y = "country_text_id", all.x = T, all.y = F)
+UCs_nsf <- merge(UCs_nsf, summary_vdem, by.x = "CTR_MN_ISO", by.y = "country_text_id", all.x = T, all.y = F)
 
-FUAs_nsf$vdem_bin <- as.factor(ifelse(FUAs_nsf$mean_edi > 0.5, "democracy", "non-democracy"))
-FUAs_nsf$vdemLib_bin <- as.factor(ifelse(FUAs_nsf$mean_ldi > 0.5, "democracy", "non-democracy"))
+UCs_nsf$vdem_bin <- as.factor(ifelse(UCs_nsf$mean_edi > 0.5, "democracy", "non-democracy"))
+UCs_nsf$vdemLib_bin <- as.factor(ifelse(UCs_nsf$mean_ldi > 0.5, "democracy", "non-democracy"))
 
 # testing to see if data makes sense
-test <- FUAs_nsf %>% group_by(vdem_bin) %>% 
+test <- UCs_nsf %>% group_by(vdem_bin) %>% 
   count(CTR_MN_NM) %>%
   ungroup()
 
@@ -211,13 +213,13 @@ destination = "iso3c"
 
 dt_ucdp_2022 <- dt_ucdp_2022 %>% dplyr::select(ISO, conflict_cumulative_intensity_22)
 
-FUAs_nsf <- merge(FUAs_nsf, dt_ucdp_2022, by.x = "CTR_MN_ISO", by.y = "ISO", all.x = T, all.y = F)
+UCs_nsf <- merge(UCs_nsf, dt_ucdp_2022, by.x = "CTR_MN_ISO", by.y = "ISO", all.x = T, all.y = F)
 
-FUAs_nsf$conflict_cumulative_intensity_22 <- ifelse(FUAs_nsf$conflict_cumulative_intensity_22 == 1, "war", "nowar")
-FUAs_nsf$conflict_cumulative_intensity_22 <- ifelse(is.na(FUAs_nsf$conflict_cumulative_intensity_22), "nowar", FUAs_nsf$conflict_cumulative_intensity_22)
+UCs_nsf$conflict_cumulative_intensity_22 <- ifelse(UCs_nsf$conflict_cumulative_intensity_22 == 1, "war", "nowar")
+UCs_nsf$conflict_cumulative_intensity_22 <- ifelse(is.na(UCs_nsf$conflict_cumulative_intensity_22), "nowar", UCs_nsf$conflict_cumulative_intensity_22)
 
 # testing to see if data makes sense
-test <- FUAs_nsf %>% group_by(conflict_cumulative_intensity_22) %>% 
+test <- UCs_nsf %>% group_by(conflict_cumulative_intensity_22) %>% 
   count(CTR_MN_NM) %>%
   ungroup()
 
@@ -233,37 +235,36 @@ CPI <- CPI %>%
   mutate(CPI_2012_2022 = mean(c_across(matches("CPIscore20(1[2-9]|20|21|22)")), na.rm = TRUE)) %>%
   ungroup() %>% dplyr::select(ISO3, CPI_2012_2022)
 
-FUAs_nsf <- merge(FUAs_nsf, CPI, by.x = "CTR_MN_ISO", by.y = "ISO3", all.x = T, all.y = F)
+UCs_nsf <- merge(UCs_nsf, CPI, by.x = "CTR_MN_ISO", by.y = "ISO3", all.x = T, all.y = F)
 
-FUAs_nsf$CPI_2012_2022 <- (100 - FUAs_nsf$CPI_2012_2022) # Reversing scale so that high is more corrupted
+UCs_nsf$CPI_2012_2022 <- (100 - UCs_nsf$CPI_2012_2022) # Reversing scale so that high is more corrupted
 
-# fifth capital, from the FUA dataset
-FUAs_nsf$capital <- ifelse(FUAs_nsf$TT2CC == 0, 1, 0)
+# fifth capital, from the UC dataset
+UCs_nsf$capital <- ifelse(UCs_nsf$TT2CC == 0, 1, 0)
 
-# identifying FUAs that have NA as capital -> visual inspection is ok to say they are not capitals
-test <- subset(FUAs_nsf, is.na(capital) & !is.na(mean_edi))
+# identifying UCs that have NA as capital -> visual inspection is ok to say they are not capitals
+test <- subset(UCs_nsf, is.na(capital) & !is.na(mean_edi))
 
-FUAs_nsf$capital[which((is.na(FUAs_nsf$capital) & !is.na(FUAs_nsf$mean_edi)))] <- 0
+UCs_nsf$capital[which((is.na(UCs_nsf$capital) & !is.na(UCs_nsf$mean_edi)))] <- 0
 
-write.csv(x=FUAs_nsf, file="outputData/FUA_nsf_merged_monitorsOpenAQWAQI.csv", row.names = F)
-
+write.csv(x=UCs_nsf, file="outputData/UC_nsf_merged_monitorsOpenAQWAQI.csv", row.names = F)
 
 ```
 
-```{r merge FUA and new GDP and Pollution data}
+```{r merge UC and new GDP and Pollution data}
 
 pollutionDataVanD <- terra::rast("dataRaster/vanD20002016.tif")
-FUAs <- st_read("data/FUA_fixed_geom.gpkg")
-FUAsterra <- terra::vect(FUAs)
+UCs <- st_read("data/UC_fixed_geom.gpkg")
+UCsterra <- terra::vect(UCs)
 
-valuesAtFUAs <- terra::extract(pollutionDataVanD, FUAsterra, fun=mean, weights = T, ID = F, na.rm=TRUE)
-valuesAtFUAs <- valuesAtFUAs %>% rename(pm25VanD20002016 = GWRPM25)
+valuesAtUCs <- terra::extract(pollutionDataVanD, UCsterra, fun=mean, weights = T, ID = F, na.rm=TRUE)
+valuesAtUCs <- valuesAtUCs %>% rename(pm25VanD20002016 = GWRPM25)
 
-newFUAs <- cbind(FUAsterra, valuesAtFUAs)
+newUCs <- cbind(UCsterra, valuesAtUCs)
 
-noSVFUA <- as.data.frame(newFUAs) %>% select(ID_HDC_G0, pm25VanD20002016)
+noSVUC <- as.data.frame(newUCs) %>% select(ID_HDC_G0, pm25VanD20002016)
 
-write.csv(x=noSVFUA, file="outputData/FUA_nsf_monitors_mergedGrid.csv", row.names = F)
+write.csv(x=noSVUC, file="outputData/UC_nsf_monitors_mergedGrid.csv", row.names = F)
 
 ```
 
