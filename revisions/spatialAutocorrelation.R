@@ -5,32 +5,32 @@ library(tidyverse)
 
 "%ni%" = Negate("%in%")
 
-FUA_data <- read.csv("outputData/FUA_nsf_merged_monitorsOpenAQWAQI.csv")
+UC_data <- read.csv("outputData/UC_nsf_merged_monitorsOpenAQWAQI.csv")
 
-FUA_gridded <- read.csv("outputData/FUA_nsf_monitors_mergedGrid.csv")
-FUA_data <- merge(FUA_data, FUA_gridded, by = "ID_HDC_G0")
+UC_gridded <- read.csv("outputData/UC_nsf_monitors_mergedGrid.csv")
+UC_data <- merge(UC_data, UC_gridded, by = "ID_HDC_G0")
 
-nonOECDFUA <- subset(FUA_data, oecd != 'OECD')
-nonOECDFUA <- subset(nonOECDFUA, INCM_CMI %ni% c('HIC', 'Other') & !is.na(INCM_CMI)) # remove high income countries and NA
-nonOECDFUA <- subset(nonOECDFUA, !is.na(vdem_bin)) # here I subset the countries that are not in the vdem dataset
-# nonOECDFUA_woINDCHN <- subset(nonOECDFUA, CTR_MN_NM %ni% c('India', 'China')) # here I subset india and china
+nonOECDUC <- subset(UC_data, oecd != 'OECD')
+nonOECDUC <- subset(nonOECDUC, INCM_CMI %ni% c('HIC', 'Other') & !is.na(INCM_CMI)) # remove high income countries and NA
+nonOECDUC <- subset(nonOECDUC, !is.na(vdem_bin)) # here I subset the countries that are not in the vdem dataset
+# nonOECDUC_woINDCHN <- subset(nonOECDUC, CTR_MN_NM %ni% c('India', 'China')) # here I subset india and china
 
-nonOECDFUA$vdem_bin <- ifelse(nonOECDFUA$vdem_bin == "non-democracy", "0non-democracy",
-                              ifelse(nonOECDFUA$vdem_bin == "democracy", "1democracy", NA))
+nonOECDUC$vdem_bin <- ifelse(nonOECDUC$vdem_bin == "non-democracy", "0non-democracy",
+                              ifelse(nonOECDUC$vdem_bin == "democracy", "1democracy", NA))
 
-nonOECDFUA <- subset(nonOECDFUA, GDP15_SM != 0) # here I subset the countries that are not in the vdem dataset
+nonOECDUC <- subset(nonOECDUC, GDP15_SM != 0) # here I subset the countries that are not in the vdem dataset
 
-nonOECDFUA$GDP15_SMpc <- nonOECDFUA$GDP15_SM/nonOECDFUA$P15
+nonOECDUC$GDP15_SMpc <- nonOECDUC$GDP15_SM/nonOECDUC$P15
 
-nonOECDFUA$isMonitor <- as.factor(ifelse((nonOECDFUA$numberMonitor - nonOECDFUA$numberUSEmbassyMonitors) > 0, 1, 0))
+nonOECDUC$isMonitor <- as.factor(ifelse((nonOECDUC$numberMonitor - nonOECDUC$numberUSEmbassyMonitors) > 0, 1, 0))
 
 # Try with a dummy IND and CHN
-nonOECDFUA$dummyCHN <- as.factor(ifelse(nonOECDFUA$CTR_MN_NM == "China", 1, 0))
-nonOECDFUA$dummyIND <- as.factor(ifelse(nonOECDFUA$CTR_MN_NM == "India", 1, 0))
+nonOECDUC$dummyCHN <- as.factor(ifelse(nonOECDUC$CTR_MN_NM == "China", 1, 0))
+nonOECDUC$dummyIND <- as.factor(ifelse(nonOECDUC$CTR_MN_NM == "India", 1, 0))
 
 # Below we sub-sample IND and CHN because they make up the whole dataset otherwise
 # Step 1: Identify the number of rows of the third most present label
-label_counts <- nonOECDFUA %>%
+label_counts <- nonOECDUC %>%
   count(CTR_MN_NM) %>%
   arrange(desc(n))
 
@@ -39,17 +39,17 @@ target_rows <- label_counts$n[3]
 
 # Subsample for "India" and "China"
 # Step 2: Adjust the rows for "India"
-df_india_adjusted <- nonOECDFUA %>%
+df_india_adjusted <- nonOECDUC %>%
   filter(CTR_MN_NM == "India") %>%
   sample_n(min(n(), target_rows))
 
 # Step 2: Adjust the rows for "China"
-df_china_adjusted <- nonOECDFUA %>%
+df_china_adjusted <- nonOECDUC %>%
   filter(CTR_MN_NM == "China") %>%
   sample_n(min(n(), target_rows))
 
 # Combine adjusted "India" and "China" with other labels
-nonOECDFUA_adjusted <- nonOECDFUA %>%
+nonOECDUC_adjusted <- nonOECDUC %>%
   filter(!CTR_MN_NM %in% c("India", "China")) %>%
   bind_rows(df_india_adjusted, df_china_adjusted)
 
@@ -60,13 +60,13 @@ fit <- glm(formula = isMonitor
              capital +
              log(P15)
            + dummyCHN + dummyIND
-           , binomial(link = "logit"), data = nonOECDFUA_adjusted)
+           , binomial(link = "logit"), data = nonOECDUC_adjusted)
 
 summary(fit)
 
 plot(residuals(fit))
 
-fullCities <- nonOECDFUA_adjusted %>% 
+fullCities <- nonOECDUC_adjusted %>% 
   filter(!if_any(c(isMonitor, GDP15_SMpc, pm25VanD20002016, vdem_bin, conflict_cumulative_intensity_22, CPI_2012_2022, capital, P15, GCPNT_LAT, GCPNT_LON), is.na))
 
 fit <- glm(formula = isMonitor
